@@ -1,0 +1,20 @@
+[Unit]
+# This service is to be run before anaconda starts and log data before anaconda changes them
+Description=pre-anaconda logging service
+Requires=basic.target
+After=basic.target
+Before=anaconda.target
+Wants=instperf.service
+Wants=rsyslog.service
+Wants=systemd-udev-settle.service
+Wants=NetworkManager.service
+Wants=plymouth-quit.service plymouth-quit-wait.service
+Wants=systemd-logind.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/anaconda/anaconda-pre-log-gen
+StandardInput=null
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutSec=0

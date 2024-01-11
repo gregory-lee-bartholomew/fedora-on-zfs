@@ -1,0 +1,403 @@
+#!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+set -e
+
+shopt -s lastpipe
+shopt -s nocasematch
+shopt -s extglob
+
+trap \
+	'printf "an error has occurred on line ${LINENO} of ${0##*/}\n" 1>&2' \
+err
+
+ARCH=$(uname -m)
+
+. <(tac config/evariables.conf | grep -m 1 '^FREP=')
+. <(tac config/evariables.conf | grep -m 1 '^ZREP=')
+
+function warn {
+	printf "$*\n" 1>&2
+}
+
+function usage {
+	warn usage: ./${0##*/} \[qemu options\] \
+		\[release\] \<kickstart\> \<drive1\> \<drive2\> \[...\]
+	printf '\n'
+
+	exit 1
+}
+
+function get_keys {
+	RELEASE=$1; shift
+	TEMPDIR=$(mktemp -d)
+	KEYSDIR='updates/etc/pki/rpm-gpg'
+
+	# fetch the keys
+	which curl rpm2cpio cpio gpg 1>/dev/null
+	while [[ $# > 0 ]]; do
+		curl -s -L "$1" | rpm2cpio | cpio -i -u -d --quiet --directory="$TEMPDIR" \
+			"./etc/pki/rpm-gpg/*"
+		shift
+	done
+
+	# ask the user to verify the keys
+	rm -rf "$KEYSDIR"
+	mkdir -p "$KEYSDIR"
+	find $TEMPDIR -type f -name 'RPM-GPG-KEY-*' -print0 \
+		| readarray -d '' -t KEYS
+	for key in "${KEYS[@]}"; do
+		[[ $key =~ [^/]*zfs[^/]*$ ]] || [[ $key =~ $RELEASE-primary$ ]] || continue
+
+		gpg --show-keys "$key"
+
+		read -e -p 'is the gpg key fingerprint shown above correct? [y/n]: ' ANSWER
+		if [[ $ANSWER == y ]]; then
+			cp "$key" "$KEYSDIR"
+		else
+			printf "omitting ${key##*/}\n"
+		fi
+
+		printf '\n'
+	done
+}
+
+# used internally to dump files to anaconda (via curl)
+# IMPORTANT: this must be the first to generate stdout
+if [[ $1 == '---' ]]; then
+	CAFE=$(sed -n '1 {s/^GET \(\S*\).*$/\1/;p;q;}')
+	if [[ -e "${CAFE#/}" ]]; then
+		printf '%s\n' \
+			'HTTP/1.0 200 OK' \
+			'Content-Type: application/octet-stream' \
+			''
+		exec cat "${CAFE#/}"
+	else
+		printf '%s\n' \
+			"HTTP/1.0 418 I'm a teapot" \
+			''
+		exit
+	fi
+fi
+
+# clear any console codes that might be
+# leftover from a previously failed run
+printf '\e[0m\n'
+
+if [[ -z $1 ]] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+	usage
+fi
+
+# filter qemu options (anything beginning with '-' is passed on to qemu)
+# the qemu options '-smp', '-m' and '-accel' are set to some high defaults
+# but the user can override them on this script's command line
+ARGC=0
+declare -A QEMU=(['-smp']='4' ['-m']='16G' ['-accel']='kvm')
+while (( $# > 0 )) && [[ $1 != -- ]]; do
+	if [[ ${1:0:1} == - ]]; then
+		if [[ $1 == *=* ]]; then
+			QEMU["${1%%=*}"]="${1#*=}"
+			shift 1
+		else
+			QEMU["$1"]="$2"
+			shift 2
+		fi
+	else
+		ARGV[$ARGC]="$1"
+		ARGC=$(($ARGC+1))
+		shift 1
+	fi
+done
+[[ $1 == -- ]] && shift 1
+set -- "${ARGV[@]}" "$@"
+
+# if "$1" is a number, take it to be
+# the fedora release to be installed
+if [[ $1 =~ ^[0-9]+$ ]]; then
+	RV="$1"; shift
+else
+	RV=$(($(
+		curl -sf \
+			'https://fedorapeople.org/groups/schedule/current-release.json' \
+		| grep -o '[0-9]*'
+	)-1))
+fi
+
+if [[ $RV -le 0 ]]; then
+	warn 'error: failed to determine the current fedora release'
+	warn 'you can specify a release to install manually by pro-'
+	warn 'viding a number as the first argument to this script.'
+	exit 1
+fi
+
+# pre-process the kickstarts
+KS="${1#fedora-kickstarts/}"; shift || usage
+if ! [[ $KS =~ ^fedora-disk- ]]; then
+	warn 'error: this script only works with fedora-disk-* kickstart scripts'
+	exit 1
+fi
+if ! [[ -e fedora-kickstarts ]]; then
+	git clone 'https://pagure.io/fedora-kickstarts.git'
+fi
+if ! [[ -f fedora-kickstarts/$KS ]]; then
+	warn "error: kickstart file 'fedora-kickstarts/$KS' not found"
+	exit 1
+fi
+rm -rf "$RV/fedora-kickstarts"
+for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
+	mkdir -p "$RV/${ks%/*}"
+	sed "
+		s#^\(%include\) \(.*\)#\1 /host/${ks%/*}/\2#;
+		s#^\(%packages\)#\1 --ignoremissing#;
+	" $ks | grep -v '^autopart\b' > $RV/$ks
+done
+printf -- '%b' 'repo ' \
+   '--name=fedora ' \
+   "--baseurl=${FREP%%*(/)}" \
+      "/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
+   > "$RV/fedora-kickstarts/fedora-repo.ks"
+
+if [[ $KS == fedora-disk-minimal.ks ]]; then
+	tr -d '\t' <<- END
+		I see you selected the fedora-disk-minimal kickstart.
+
+		This installer can include a simple PAM script called "homelock" which
+		can automate the locking and unlocking of user home directories while
+		signing-in and signing-out on the console. It [3monly[23m works with \
+		console
+		based sign-ins. It will not work with graphical desktop managers such
+		as GDM or SDDM. It will, however, work with window managers that can be
+		launched from the console such as [1mSway[22m. Also, it uses the \
+		same password
+		entered during sign-in to unlock the home directory. So the passwords
+		for the home directory filesystem and the user account must be kept in-
+		sync.
+
+	END
+	read -e -p 'Enable encrypted home directories via homelock? [y/n]: ' ANSWER
+	if [[ $ANSWER == y* ]]; then
+		ENCRYPTION='on'
+		[[ -e homelock ]] || git clone \
+			'https://github.com/gregory-lee-bartholomew/homelock.git'
+		[[ -e homelock ]] && cp -r homelock "$RV"
+	else
+		ENCRYPTION='off'
+		[[ -e $RV/homelock ]] && rm -rf "$RV/homelock"
+	fi
+fi
+printf '\n'
+
+ADD_SWAYWM='no'
+if [[ $KS == fedora-disk-minimal.ks ]] && [[ $RV -ge 38 ]]; then
+	cat <<- 'END'
+		I see you selected the fedora-disk-minimal kickstart.
+	END
+	read -e -p 'Would you like [1mSway[22m with that? [y/n]: ' ANSWER
+	[[ $ANSWER == y* ]] && ADD_SWAYWM='yes'
+fi
+printf '\n'
+
+# provide the installer with the conifguration files that will
+# be referenced by the scripts during the installation process
+cp -r config $RV
+
+# try to match the host's env so, e.g., <backspace> will work
+cat <<- END >> "$RV/config/evariables.conf"
+
+	TERM="$TERM"
+	LANG="$LANG"
+END
+
+# combine the provided kickstart and our scripts
+# to create the final kickstart (fedora-on-zfs.ks)
+. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
+cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
+%include /host/fedora-kickstarts/$KS
+%include /host/config/override.ks
+${BIOSBOOT:+%include /host/config/$BIOSBOOT}
+END
+
+# make sure that at least two drives/files have been supplied
+COUNT=0
+declare -a FILE=()
+while [[ -n $1 ]]; do
+	if ! [[ -e $1 ]]; then
+		warn "error: '$1' not found"
+		exit 1
+	fi
+
+	FILE[$COUNT]="$1"
+	COUNT=$(($COUNT+1))
+
+	shift
+done
+if [[ $COUNT -lt 2 ]]; then
+	warn 'error: you must supply at least two drives'
+	exit 1
+fi
+
+# fetch the anaconda boot files
+if ! [[ -d $RV/images/pxeboot ]]; then
+	mkdir -p "$RV/images/pxeboot"
+fi
+for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
+	if ! [[ -e $RV/$BF ]]; then
+		printf "downloading $BF for fedora linux $RV on $ARCH\n"
+		curl -\# -f -o "$RV/$BF" \
+			-L "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/$BF"
+	fi
+done
+printf '\n'
+
+# provide the installer with the scripts to support degraded boot
+# (if a drive fails, you should still be able to boot the system)
+[[ -e bootsync ]] || git clone \
+	'https://github.com/gregory-lee-bartholomew/bootsync.git'
+[[ -e bootsync ]] && cp -r bootsync "$RV"
+printf '\n'
+
+# fetch the gpg rpms and extract the gpg keys
+if [[ $RV -le 34 ]]; then
+	ZKEY="zfs-release.fc$RV.noarch.rpm"
+else
+	curl -sf ${ZREP%%*(/)}/ \
+		| grep -o "zfs-release[[:alnum:]\.\-]*.fc$RV.noarch.rpm" \
+		| sort -r -t '.' -k 2 | read ZKEY
+fi
+RPMS=(
+"${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os"\
+"/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm"
+"${ZREP%%*(/)}/$ZKEY"
+)
+TEMPDIR=$(mktemp -d)
+KEYSDIR='updates/etc/pki/rpm-gpg'
+which curl rpm2cpio cpio 1>/dev/null
+for rpm in ${RPMS[*]}; do
+	printf "downloading $rpm ...\n"
+	if ! curl -s -L "$rpm" \
+		| rpm2cpio \
+		| cpio -i -u -d --quiet --directory="$TEMPDIR" "./etc/pki/rpm-gpg/*"
+	then
+		warn 'error: bad link. are $FREP and $ZREP correct?'
+		exit 1
+	fi
+done
+printf '\n'
+
+# ask the user to verify the keys
+which gpg 1>/dev/null
+rm -rf "$KEYSDIR"
+mkdir -p "$KEYSDIR"
+find $TEMPDIR -type f -name 'RPM-GPG-KEY-*' -print0 \
+	| readarray -d '' -t KEYS
+for key in "${KEYS[@]}"; do
+	[[ $key =~ [^/]*zfs[^/]*$ ]] || [[ $key =~ $RV-primary$ ]] || continue
+
+	gpg --show-keys "$key"
+
+	read -e -p 'is the gpg key fingerprint shown above correct? [y/n]: ' ANSWER
+	if [[ $ANSWER == y ]]; then
+		cp "$key" "$KEYSDIR"
+	else
+		printf "omitting ${key##*/}\n"
+	fi
+
+	printf '\n'
+done
+printf '\n'
+
+# prevent the ssh host fingerprint of the installer
+# from changing between one run and the next (2222)
+if ! [[ -e updates/etc/ssh ]]; then
+	mkdir -p 'updates/etc/ssh'
+	ssh-keygen -A -f 'updates'
+	printf '\n'
+fi
+
+# create the "updates" overlay that contains most of the anaconda overrides
+(cd updates; find . | cpio -oc --quiet --file="../$RV/images/updates.img")
+
+# initialize the firmware data for qemu
+mkdir -p "$RV/efi"
+for fd in OVMF_{CODE,VARS}.fd; do
+	if ! cp "/usr/share/edk2/ovmf/$fd" "$RV/efi" &>/dev/null; then
+		warn "error: failed to make a local copy of '$fd'"
+		warn 'you may need to install the edk2-ovmf package'
+		exit 1
+	fi
+done
+
+# give the user one last chance to abort
+printf "warning: this will erase all data from: \e[1m${FILE[*]}\e[22m\n"
+read -e -p 'are you sure you want to continue? [y/n]: ' ANSWER
+if [[ $ANSWER == y ]]; then
+	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
+		warn "$STATUS"
+		exit 1
+	fi
+else
+	exit 1
+fi
+
+. <(tac config/evariables.conf | grep -m 1 '^SSHPORT=')
+
+cat << END
+
+launching the anaconda installer...
+
+you can press [1mctrl-a x[22m at any time to kill the installer
+or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer
+
+you can get some coffee now ... this will take a while
+
+END
+
+sleep 3
+
+qemu-system-$ARCH \
+	-name 'fedora' \
+	-nographic \
+	$(
+		for s in "${!QEMU[@]}"; do
+			printf -- '%s %q ' "$s" "${QEMU[$s]}"
+		done
+	)\
+	-device 'virtio-rng-pci' \
+	-device 'virtio-net,netdev=n0' \
+	-netdev "$(printf -- '%s' \
+		'user,' \
+		'id=n0,' \
+		"hostfwd=tcp:127.0.0.1:${SSHPORT}-:22," \
+		"guestfwd=tcp:10.0.2.200:80-cmd:$0 ---," \
+	)" \
+	-drive "if=pflash,format=raw,unit=0,file=$RV/efi/OVMF_CODE.fd,readonly=on" \
+	-drive "if=pflash,format=raw,unit=1,file=$RV/efi/OVMF_VARS.fd" \
+	$(
+		for f in "${FILE[@]}"; do
+			printf -- '-drive if=virtio,format=raw,file=%q ' "$f"
+		done
+	)\
+	-virtfs "local,id=host,mount_tag=host,path=$RV,security_model=passthrough" \
+	-kernel "$RV/images/pxeboot/vmlinuz" \
+	-initrd "$RV/images/pxeboot/initrd.img" \
+	-append "$(printf -- '%s' \
+		'enforcing=0 quiet console=null ' \
+		'rd.dm=0 rd.lvm=0 rd.luks=0 rd.md=0 ' \
+		"systemd.setenv=RELEASEVER=$RV systemd.setenv=BASEARCH=$ARCH " \
+		"systemd.setenv=REPO=${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/ " \
+		"systemd.setenv=GPGKEYS=$GPGKEYS " \
+		"systemd.setenv=ENCRYPTION=$ENCRYPTION " \
+		"systemd.setenv=ADD_SWAYWM=$ADD_SWAYWM " \
+		"inst.stage2=http://10.0.2.200/$RV " \
+		'inst.sshd ' \
+	)"
+
+rm -rf efi
+mv "$RV/efi" efi
+
+cat << END
+
+The UEFI firmware images needed to boot the installed
+system with QEMU have been saved under the [1mefi[22m directory.
+
+END

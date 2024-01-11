@@ -1,0 +1,1299 @@
+From ef591f203802bf5c394a6b7da5a1d433a74e3118 Mon Sep 17 00:00:00 2001
+From: Gregory Lee Bartholomew <gregory.lee.bartholomew@gmail.com>
+Date: Tue, 9 Jul 2019 13:18:21 -0500
+Subject: [PATCH] core: Add support for BLS Type 1 entries
+
+Modern distributions are moving toward a common boot scheme called "The Boot
+Loader Specification". This patch enables syslinux to parse the drop-in files
+that are defined by this new specification.
+
+Link to documentation of the options added to syslinux by this patch:
+https://drive.google.com/uc?export=download&id=1nuRISVJeE1whYggFURywoQFpPzc6s1MC
+MD5 (syslinux-bls1.txt) = ad845afd302932edf505185b2966c10d
+
+Link to The Boot Loader Specification:
+https://systemd.io/BOOT_LOADER_SPECIFICATION
+
+Link to demonstration bootdisk image (82MB gzipped):
+https://drive.google.com/uc?export=download&id=1A9psiWfR7jK316DxMRkc5iMkQ-zhEHiG
+MD5 (syslinux-bls1.img.gz) = 9634058d121f80d06ae3f1af94ca0bab
+
+Link to bash script used to create above bootdisk image:
+https://drive.google.com/uc?export=download&id=1QK73PL8jJ6_lJtUnNEok7aECbzxToqEn
+MD5 (syslinux-bls1.sh) = f454d9ceed648b12ab58d623ed238243
+
+Signed-off-by: Gregory Bartholomew <gregory.lee.bartholomew@gmail.com>
+---
+ com32/elflink/ldlinux/Makefile     |   2 +-
+ com32/elflink/ldlinux/bls.c        | 230 +++++++++++++++++++++
+ com32/elflink/ldlinux/readconfig.c | 318 +++++++++++++++++++++++++++++
+ com32/include/bls.h                |  44 ++++
+ com32/menu/Makefile                |   2 +-
+ com32/menu/bls.c                   | 230 +++++++++++++++++++++
+ com32/menu/readconfig.c            | 318 +++++++++++++++++++++++++++++
+ 7 files changed, 1142 insertions(+), 2 deletions(-)
+ create mode 100644 com32/elflink/ldlinux/bls.c
+ create mode 100644 com32/include/bls.h
+ create mode 100644 com32/menu/bls.c
+
+diff --git a/com32/elflink/ldlinux/Makefile b/com32/elflink/ldlinux/Makefile
+index 87c0d362..ac4587dd 100644
+--- a/com32/elflink/ldlinux/Makefile
++++ b/com32/elflink/ldlinux/Makefile
+@@ -18,7 +18,7 @@ LIBS = --whole-archive $(objdir)/com32/lib/libcom32min.a
+ 
+ OBJS = ldlinux.o cli.o readconfig.o refstr.o colors.o getadv.o adv.o \
+ 	execute.o chainboot.o kernel.o get_key.o advwrite.o setadv.o \
+-	loadhigh.o msg.o
++	loadhigh.o msg.o bls.o
+ 
+ BTARGET = $(LDLINUX)
+ 
+diff --git a/com32/elflink/ldlinux/bls.c b/com32/elflink/ldlinux/bls.c
+new file mode 100644
+index 00000000..16e8bf18
+--- /dev/null
++++ b/com32/elflink/ldlinux/bls.c
+@@ -0,0 +1,230 @@
++/*
++ * bls.c
++ *
++ * Source file for the boot loader specification
++ *
++ * https://systemd.io/BOOT_LOADER_SPECIFICATION
++ * #type-1-boot-loader-specification-entries
++ */
++
++#include <ctype.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <dprintf.h>
++#include "refstr.h"
++#include "bls.h"
++
++const char *get_bls_field(struct blsdata *bd, const char *fieldname) {
++    if (!bd || !fieldname)
++	return NULL;
++
++    if (strcmp(fieldname, "filename") == 0)
++	return bd->filename;
++    if (strcmp(fieldname, "title") == 0)
++	return bd->title;
++    if (strcmp(fieldname, "version") == 0)
++	return bd->version;
++    if (strcmp(fieldname, "version0") == 0)
++	return bd->version0;
++    if (strcmp(fieldname, "machine-id") == 0)
++	return bd->machine_id;
++    if (strcmp(fieldname, "linux") == 0)
++	return bd->freax;
++    if (strcmp(fieldname, "initrd") == 0)
++	return bd->initrd;
++    if (strcmp(fieldname, "efi") == 0)
++	return bd->efi;
++    if (strcmp(fieldname, "options") == 0)
++	return bd->options;
++    if (strcmp(fieldname, "devicetree") == 0)
++	return bd->devicetree;
++    if (strcmp(fieldname, "architecture") == 0)
++	return bd->architecture;
++    if (strcmp(fieldname, "other") == 0)
++	return bd->other;
++
++    return NULL;
++}
++
++/*
++ * inspired by syslinux/com32/elflink/ldlinux/readconfig.c:clear_label_data
++ */
++void clear_bls_data(struct blsdata *bd)
++{
++    if (!bd)
++	return;
++
++    refstr_put(bd->filename);
++    refstr_put(bd->title);
++    refstr_put(bd->version);
++    refstr_put(bd->version0);
++    refstr_put(bd->machine_id);
++    refstr_put(bd->freax);
++    free(bd->initrd);
++    refstr_put(bd->efi);
++    free(bd->options);
++    refstr_put(bd->devicetree);
++    refstr_put(bd->architecture);
++    refstr_put(bd->other);
++    refstr_put(bd->sort_field);
++
++    memset(bd, 0, sizeof *bd);
++}
++
++/*
++ * inspired by syslinux/com32/modules/ls.c:compare_dirent
++ */
++int compare_bls_data(const void *p_bd1, const void *p_bd2)
++{
++    if (!p_bd1 || !p_bd2)
++	return 0;
++
++    const struct blsdata *bd1 = *(const struct blsdata **)p_bd1;
++    const struct blsdata *bd2 = *(const struct blsdata **)p_bd2;
++
++    const char *a = NULL, *b = NULL;
++
++    if (bd1->sort_field && bd2->sort_field) {
++	a = bd1->sort_field;
++	b = bd2->sort_field;
++    } else if (bd1->title && bd2->title) {
++	a = bd1->title;
++	b = bd2->title;
++    } else if (bd1->freax && bd2->freax) {
++	a = bd1->freax;
++	b = bd2->freax;
++    } else if (bd1->efi && bd2->efi) {
++	a = bd1->efi;
++	b = bd2->efi;
++    } else {
++	/* We should never get here */
++	return 0;
++    }
++
++    return strcmp(a, b);
++}
++
++int compare_bls_data_asc(const void *p_bd1, const void *p_bd2)
++{
++    return compare_bls_data(p_bd1, p_bd2);
++}
++
++int compare_bls_data_des(const void *p_bd1, const void *p_bd2)
++{
++    return compare_bls_data(p_bd2, p_bd1);
++}
++
++const char *format_bls_data(struct blsdata *bd, const char *fmt)
++{
++    char *ml, *tmp;
++    const char *field, *rv;
++    int i, j, ml_len;
++
++    if (!bd || !fmt)
++	return NULL;
++
++    ml = malloc(1);
++    *ml = '\0';
++    ml_len = 0;
++
++    i = 0;
++    tmp = malloc(strlen(fmt) + 1);
++    strcpy(tmp, fmt);
++    while (fmt[i]) {
++	if (fmt[i] == '$') {
++	    i += 1;
++	    for (j = i; isalnum(fmt[j]) || fmt[j] == '-'; j++);
++	    if (j > i) {
++		tmp[j] = '\0';
++		field = get_bls_field(bd, tmp+i);
++		if (field) {
++		    ml_len += strlen(field);
++		    ml = realloc(ml, ml_len + 1);
++		    strcat(ml, field);
++		}
++		i = j;
++	    }
++	}
++	for (j = i; fmt[j] && fmt[j] != '$'; j++);
++	if (j > i) {
++	    ml_len += j - i;
++	    ml = realloc(ml, ml_len + 1);
++	    strncat(ml, fmt+i, j - i);
++	    ml[ml_len] = '\0';
++	    i = j;
++	}
++    }
++    free(tmp);
++
++    rv = refstrdup(ml);
++    free(ml);
++
++    return rv;
++}
++
++/*
++ * pads the numeric fields of a version string with zeros
++ * to get kernel versions to sort a little better
++ */
++const char *padver(const char *version, const int pad)
++{
++    int i, j, p, len;
++    char *bwd = NULL, *fwd = NULL, *tmp;
++    const char *rv;
++
++    if (version == NULL || pad > 9 || pad <= 0)
++	return version;
++
++    len = strlen(version) + 1;
++    bwd = malloc(len);
++    if (!bwd)
++	goto nomem;
++
++    p = pad;
++    for (i = len-1, j = 0; j <= len; i--, j++) {
++	if (i < 0 || version[i] == '.' || version[i] == '-') {
++	    if (p > 0) {
++		len += p;
++		if ((tmp = realloc(bwd, len))) {
++		    bwd = tmp;
++		} else {
++		    goto nomem;
++		}
++		while (p--) {
++		    bwd[j++] = '0';
++		}
++	    }
++	    p = pad;
++	} else if (isdigit(version[i])) {
++	    p--;
++	} else if (version[i]) {
++	    p = 0;
++	}
++	if (i >= 0) {
++	    bwd[j] = version[i];
++	}
++    }
++
++    fwd = malloc(len);
++    if (!fwd)
++	goto nomem;
++
++    tmp = bwd;
++    for (i = len-1; i >= 0; i--) {
++	fwd[i] = *tmp;
++	tmp++;
++    }
++    free(bwd);
++
++    rv = refstrdup(fwd);
++    free(fwd);
++
++    return rv;
++
++nomem:
++    dprintf("Out of memory error!\n");
++    free(bwd);
++    free(fwd);
++    return NULL;
++}
+diff --git a/com32/elflink/ldlinux/readconfig.c b/com32/elflink/ldlinux/readconfig.c
+index 3d6aa27e..b1397e4b 100644
+--- a/com32/elflink/ldlinux/readconfig.c
++++ b/com32/elflink/ldlinux/readconfig.c
+@@ -22,6 +22,7 @@
+ #include <inttypes.h>
+ #include <colortbl.h>
+ #include <com32.h>
++#include <dirent.h>
+ #include <syslinux/adv.h>
+ #include <syslinux/config.h>
+ #include <dprintf.h>
+@@ -32,11 +33,22 @@
+ #include <syslinux/pxe_api.h>
+ 
+ #include "menu.h"
++#include "bls.h"
+ #include "config.h"
+ #include "getkey.h"
+ #include "core.h"
+ #include "fs.h"
+ 
++/* BLS1 entry global settings */
++char *bls1_labelf = NULL;
++char *bls1_format = NULL;
++char *bls1_sortby = NULL;
++char *bls1_pinmin = NULL;
++char *bls1_pinmax = NULL;
++int bls1_padver = BLS1_PADVER;
++int bls1_ascend = BLS1_ASCEND;
++int bls1_shwlbl = BLS1_SHWLBL;
++
+ const struct menu_parameter mparm[NPARAMS] = {
+     [P_WIDTH] = {"width", 0},
+     [P_MARGIN] = {"margin", 10},
+@@ -641,6 +653,7 @@ extern uint16_t PXERetry;
+ static struct labeldata ld;
+ 
+ static int parse_main_config(const char *filename);
++static int parse_bls1_dir(const char *dirname);
+ 
+ static char *is_kernel_type(char *cmdstr, enum kernel_type *type)
+ {
+@@ -1239,6 +1252,40 @@ static void parse_config_file(FILE * f)
+ 	    default_cmd = refstrdup(skipspace(p + 2));
+ 	}
+ 	
++	else if (looking_at(p, "bls1")) {
++	    p = skipspace(p + 4);
++	    if (looking_at(p, "include")) {
++		p = skipspace(p + 7);
++		parse_bls1_dir((*p) ? p : BLS1_DIR);
++	    } else if (looking_at(p, "labelf")) {
++		p = skipspace(p + 6);
++		bls1_labelf = realloc(bls1_labelf, strlen(p) + 1);
++		strcpy(bls1_labelf, p);
++	    } else if (looking_at(p, "format")) {
++		p = skipspace(p + 6);
++		bls1_format = realloc(bls1_format, strlen(p) + 1);
++		strcpy(bls1_format, p);
++	    } else if (looking_at(p, "sortby")) {
++		p = skipspace(p + 6);
++		bls1_sortby = realloc(bls1_sortby, strlen(p) + 1);
++		strcpy(bls1_sortby, p);
++	    } else if (looking_at(p, "pinmin")) {
++		p = skipspace(p + 6);
++		bls1_pinmin = realloc(bls1_pinmin, strlen(p) + 1);
++		strcpy(bls1_pinmin, p);
++	    } else if (looking_at(p, "pinmax")) {
++		p = skipspace(p + 6);
++		bls1_pinmax = realloc(bls1_pinmax, strlen(p) + 1);
++		strcpy(bls1_pinmax, p);
++	    } else if (looking_at(p, "padver")) {
++		bls1_padver = atoi(skipspace(p + 6));
++	    } else if (looking_at(p, "ascend")) {
++		bls1_ascend = atoi(skipspace(p + 6));
++	    } else if (looking_at(p, "shwlbl")) {
++		bls1_shwlbl = atoi(skipspace(p + 6));
++	    }
++	}
++
+ 	/*
+ 	 * subset 1:  pc_opencmd 
+ 	 * display/font/kbdmap are rather similar, open a file then do sth
+@@ -1433,6 +1480,277 @@ static void parse_config_file(FILE * f)
+     }
+ }
+ 
++/*
++ * inspired by parse_config_file
++ */
++static int parse_bls1_file(struct blsdata *bd, const char *filename)
++{
++    FILE *f = NULL;
++    char line[MAX_LINE], *p, *pin;
++    const char *fmt, *tmp;
++
++    dprintf("Opening bls entry: %s ", filename);
++
++    f = fopen(filename, "r");
++    dprintf("%s\n", f ? "ok" : "failed");
++
++    if (!f)
++	return -1;
++
++    refstr_put(bd->filename);
++    bd->filename = refstrdup(filename);
++
++    while (fgets(line, sizeof line, f)) {
++	p = strchr(line, '\r');
++	if (p)
++	    *p = '\0';
++	p = strchr(line, '\n');
++	if (p)
++	    *p = '\0';
++
++	p = skipspace(line);
++
++	if (looking_at(p, "title")) {
++	    refstr_put(bd->title);
++	    bd->title = refstrdup(skipspace(p + 5));
++	} else if (looking_at(p, "version")) {
++	    refstr_put(bd->version);
++	    bd->version = refstrdup(skipspace(p + 7));
++	    bd->version0 = padver(bd->version, bls1_padver);
++	} else if (looking_at(p, "machine-id")) {
++	    refstr_put(bd->machine_id);
++	    bd->machine_id = refstrdup(skipspace(p + 10));
++	} else if (looking_at(p, "linux")) {
++	    refstr_put(bd->freax);
++	    bd->freax = refstrdup(skipspace(p + 5));
++	} else if (looking_at(p, "initrd")) {
++	    /* The "initrd" keyword can be specified multiple times */
++	    int clen = 0;
++	    int xlen = 0;
++
++	    p = skipspace(p + 6);
++	    xlen = strlen(p);
++
++	    if (xlen) {
++		if (bd->initrd) {
++		    clen = strlen(bd->initrd);
++		    bd->initrd[clen++] = ',';
++		}
++		bd->initrd = realloc(bd->initrd, clen + xlen + 1);
++		memcpy(bd->initrd + clen, p, xlen + 1);
++	    }
++	} else if (looking_at(p, "efi")) {
++	    refstr_put(bd->efi);
++	    bd->efi = refstrdup(skipspace(p + 3));
++	} else if (looking_at(p, "options")) {
++	    /* The "options" keyword can be specified multiple times */
++	    int clen = 0;
++	    int xlen = 0;
++
++	    p = skipspace(p + 7);
++	    xlen = strlen(p);
++
++	    if (xlen) {
++		if (bd->options) {
++		    clen = strlen(bd->options);
++		    bd->options[clen++] = ' ';
++		}
++		bd->options = realloc(bd->options, clen + xlen + 1);
++		memcpy(bd->options + clen, p, xlen + 1);
++	    }
++	} else if (looking_at(p, "devicetree")) {
++	    refstr_put(bd->devicetree);
++	    bd->devicetree = refstrdup(skipspace(p + 10));
++	} else if (looking_at(p, "architecture")) {
++	    refstr_put(bd->architecture);
++	    bd->architecture = refstrdup(skipspace(p + 12));
++	} else if (looking_at(p, "other")) {
++	    refstr_put(bd->other);
++	    bd->other = refstrdup(skipspace(p + 5));
++	}
++    }
++
++    fclose(f);
++
++    fmt = NULL;
++    tmp = NULL;
++
++    p = (bls1_pinmin) ? bls1_pinmin : BLS1_PINMIN;
++    pin = malloc(strlen(p) + 1);
++    strcpy(pin, p);
++    p = strchr(pin, ' ');
++    if (p) {
++	*p = '\0';
++	tmp = format_bls_data(bd, pin);
++	p++;
++	if (strstr(tmp, p))
++	    fmt = (bls1_ascend) ? "0%s" : "2%s";
++	refstr_put(tmp);
++    }
++    free(pin);
++
++    p = (bls1_pinmax) ? bls1_pinmax : BLS1_PINMAX;
++    pin = malloc(strlen(p) + 1);
++    strcpy(pin, p);
++    p = strchr(pin, ' ');
++    if (p) {
++	*p = '\0';
++	tmp = format_bls_data(bd, pin);
++	p++;
++	if (strstr(tmp, p))
++	    fmt = (bls1_ascend) ? "2%s" : "0%s";
++	refstr_put(tmp);
++    }
++    free(pin);
++
++    if (!fmt)
++	fmt = "1%s";
++
++    tmp = format_bls_data(bd, (bls1_sortby) ? bls1_sortby : BLS1_SORTBY);
++    refstr_put(bd->sort_field);
++    rsprintf(&bd->sort_field, fmt, tmp);
++    refstr_put(tmp);
++
++    return (bd->freax || bd->efi) ? 0 : -1;
++}
++
++/*
++ * inspired by syslinux/com32/modules/ls.c:display_directory
++ *
++ * returns the number of files that were successfully parsed,
++ * or -1 on error
++ */
++static int parse_bls1_dir(const char *dirname)
++{
++    DIR *d = NULL;
++    char *filename = NULL;
++    struct dirent *de = NULL;
++    struct blsdata *nbd = NULL, **bdx = NULL;
++    int i, n_bdx = 0, n_bd = 0;
++    int rv = 0, fn_len, dn_len;
++    struct menu *m = current_menu;
++    const char *tmp = NULL;
++
++    dprintf("Opening bls entries directory %s ", dirname);
++
++    d = opendir(dirname);
++    dprintf("%s\n", d ? "ok" : "failed");
++    if (!d)
++	return -1;
++    dn_len = strlen(dirname);
++
++    while ((de = readdir(d)) != NULL) {
++	if (de->d_type != DT_REG)
++	    continue;
++
++	fn_len = strlen(de->d_name);
++	if (strcmp(de->d_name+(fn_len-5), ".conf"))
++	    continue;
++
++	if (!(filename = malloc(dn_len + 1 + fn_len + 1)))
++	    goto nomem;
++
++	sprintf(filename, "%s/%s", dirname, de->d_name);
++
++	if (n_bd >= n_bdx) {
++	    struct blsdata **nbdx;
++
++	    nbdx = realloc(bdx, (n_bdx + BLS1_CHUNK) * sizeof *bdx);
++	    if (!nbdx)
++		goto nomem;
++
++	    bdx = nbdx;
++	    n_bdx += BLS1_CHUNK;
++	}
++
++	nbd = malloc(sizeof(struct blsdata));
++	if (!nbd)
++	    goto nomem;
++
++	memset(nbd, 0, sizeof *nbd);
++	if (parse_bls1_file(nbd, filename) == 0) {
++	    bdx[n_bd++] = nbd;
++	    rv++;
++	} else {
++	    clear_bls_data(nbd);
++	    free(nbd);
++	}
++
++	free(filename);
++    }
++
++    closedir(d);
++
++    if (bls1_ascend) {
++	qsort(bdx, n_bd, sizeof *bdx, compare_bls_data_asc);
++    } else {
++	qsort(bdx, n_bd, sizeof *bdx, compare_bls_data_des);
++    }
++
++    /*
++     * For each of the BLS1 entries, do essentially
++     * the same as the looking_at(p, "label") clause
++     * of the parse_config_file function
++    */
++    for (i = 0; i < n_bd; i++) {
++	record(m, &ld, append);
++
++	/*
++	 * labels are autonumbered
++	 * with a user-configurable format
++	 * that defaults to "BLS%03d"
++	 */
++	rsprintf(
++	    &ld.label, (bls1_labelf) ? bls1_labelf : BLS1_LABELF, i+1
++	);
++
++	if (bdx[i]->freax) {
++	    ld.kernel = refstrdup(bdx[i]->freax);
++	    ld.type = KT_LINUX;
++	} else {
++	    ld.kernel = refstrdup(bdx[i]->efi);
++	    ld.type = KT_KERNEL;
++	}
++	ld.passwd = NULL;
++	ld.append = refstrdup(bdx[i]->options);
++	ld.initrd = refstrdup(bdx[i]->initrd);
++	ld.menulabel = format_bls_data(
++	    bdx[i], (bls1_format) ? bls1_format : BLS1_FORMAT
++	);
++	ld.helptext = NULL;
++	ld.ipappend = SysAppends;
++	ld.menudefault = ld.menuhide = ld.menuseparator =
++	    ld.menudisabled = ld.menuindent = 0;
++
++	if (bls1_shwlbl) {
++	    tmp = refstrdup(ld.menulabel);
++	    refstr_put(ld.menulabel);
++	    rsprintf(&ld.menulabel, "%s%s", ld.label, tmp);
++	    refstr_put(tmp);
++	}
++
++	clear_bls_data(bdx[i]);
++	free(bdx[i]);
++    }
++    free(bdx);
++
++    return rv;
++
++nomem:
++    dprintf("Out of memory error!\n");
++    free(filename);
++    for (i = 0; i < n_bd; i++) {
++	clear_bls_data(bdx[i]);
++	free(bdx[i]);
++    }
++    free(bdx);
++    clear_bls_data(nbd);
++    free(nbd);
++    if (d)
++	closedir(d);
++    return -1;
++}
++
+ static int parse_main_config(const char *filename)
+ {
+ 	const char *mode = "r";
+diff --git a/com32/include/bls.h b/com32/include/bls.h
+new file mode 100644
+index 00000000..7877714b
+--- /dev/null
++++ b/com32/include/bls.h
+@@ -0,0 +1,44 @@
++/*
++ * bls.h
++ *
++ * Header file for boot loader specification entries
++ * https://systemd.io/BOOT_LOADER_SPECIFICATION
++ */
++
++#ifndef BLS_H
++#define BLS_H
++
++#define BLS1_DIR         "/loader/entries"
++#define BLS1_CHUNK       16
++#define BLS1_LABELF      "BLS%03d"
++#define BLS1_FORMAT      "$title ($version)"
++#define BLS1_SORTBY      "$machine-id$version0$title"
++#define BLS1_PINMIN      "$filename default"
++#define BLS1_PINMAX      "$filename rescue"
++#define BLS1_PADVER      3
++#define BLS1_ASCEND      0
++#define BLS1_SHWLBL      0
++
++struct blsdata {
++    const char *filename;
++    const char *title;
++    const char *version;
++    const char *version0; /* version string padded with zeros */
++    const char *machine_id;
++    const char *freax; /* "freax" because "linux" is reserved */
++    char *initrd;
++    const char *efi;
++    char *options;
++    const char *devicetree;
++    const char *architecture;
++    const char *other; /* an extra field; has no reserved purpose */
++    const char *sort_field; /* used internally for sorting */
++};
++
++void clear_bls_data(struct blsdata *);
++int compare_bls_data_asc(const void *, const void *);
++int compare_bls_data_des(const void *, const void *);
++const char *format_bls_data(struct blsdata *, const char *);
++const char *padver(const char *, const int);
++
++#endif /* BLS_H */
+diff --git a/com32/menu/Makefile b/com32/menu/Makefile
+index 7c2d5927..383ca6f0 100644
+--- a/com32/menu/Makefile
++++ b/com32/menu/Makefile
+@@ -23,7 +23,7 @@ MODULES	  = menu.c32 vesamenu.c32
+ TESTFILES =
+ 
+ COMMONOBJS = menumain.o readconfig.o passwd.o drain.o \
+-		printmsg.o colors.o background.o refstr.o
++		printmsg.o colors.o background.o refstr.o bls.o
+ 
+ all: $(MODULES) $(TESTFILES)
+ 
+diff --git a/com32/menu/bls.c b/com32/menu/bls.c
+new file mode 100644
+index 00000000..16e8bf18
+--- /dev/null
++++ b/com32/menu/bls.c
+@@ -0,0 +1,230 @@
++/*
++ * bls.c
++ *
++ * Source file for the boot loader specification
++ *
++ * https://systemd.io/BOOT_LOADER_SPECIFICATION
++ * #type-1-boot-loader-specification-entries
++ */
++
++#include <ctype.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <dprintf.h>
++#include "refstr.h"
++#include "bls.h"
++
++const char *get_bls_field(struct blsdata *bd, const char *fieldname) {
++    if (!bd || !fieldname)
++	return NULL;
++
++    if (strcmp(fieldname, "filename") == 0)
++	return bd->filename;
++    if (strcmp(fieldname, "title") == 0)
++	return bd->title;
++    if (strcmp(fieldname, "version") == 0)
++	return bd->version;
++    if (strcmp(fieldname, "version0") == 0)
++	return bd->version0;
++    if (strcmp(fieldname, "machine-id") == 0)
++	return bd->machine_id;
++    if (strcmp(fieldname, "linux") == 0)
++	return bd->freax;
++    if (strcmp(fieldname, "initrd") == 0)
++	return bd->initrd;
++    if (strcmp(fieldname, "efi") == 0)
++	return bd->efi;
++    if (strcmp(fieldname, "options") == 0)
++	return bd->options;
++    if (strcmp(fieldname, "devicetree") == 0)
++	return bd->devicetree;
++    if (strcmp(fieldname, "architecture") == 0)
++	return bd->architecture;
++    if (strcmp(fieldname, "other") == 0)
++	return bd->other;
++
++    return NULL;
++}
++
++/*
++ * inspired by syslinux/com32/elflink/ldlinux/readconfig.c:clear_label_data
++ */
++void clear_bls_data(struct blsdata *bd)
++{
++    if (!bd)
++	return;
++
++    refstr_put(bd->filename);
++    refstr_put(bd->title);
++    refstr_put(bd->version);
++    refstr_put(bd->version0);
++    refstr_put(bd->machine_id);
++    refstr_put(bd->freax);
++    free(bd->initrd);
++    refstr_put(bd->efi);
++    free(bd->options);
++    refstr_put(bd->devicetree);
++    refstr_put(bd->architecture);
++    refstr_put(bd->other);
++    refstr_put(bd->sort_field);
++
++    memset(bd, 0, sizeof *bd);
++}
++
++/*
++ * inspired by syslinux/com32/modules/ls.c:compare_dirent
++ */
++int compare_bls_data(const void *p_bd1, const void *p_bd2)
++{
++    if (!p_bd1 || !p_bd2)
++	return 0;
++
++    const struct blsdata *bd1 = *(const struct blsdata **)p_bd1;
++    const struct blsdata *bd2 = *(const struct blsdata **)p_bd2;
++
++    const char *a = NULL, *b = NULL;
++
++    if (bd1->sort_field && bd2->sort_field) {
++	a = bd1->sort_field;
++	b = bd2->sort_field;
++    } else if (bd1->title && bd2->title) {
++	a = bd1->title;
++	b = bd2->title;
++    } else if (bd1->freax && bd2->freax) {
++	a = bd1->freax;
++	b = bd2->freax;
++    } else if (bd1->efi && bd2->efi) {
++	a = bd1->efi;
++	b = bd2->efi;
++    } else {
++	/* We should never get here */
++	return 0;
++    }
++
++    return strcmp(a, b);
++}
++
++int compare_bls_data_asc(const void *p_bd1, const void *p_bd2)
++{
++    return compare_bls_data(p_bd1, p_bd2);
++}
++
++int compare_bls_data_des(const void *p_bd1, const void *p_bd2)
++{
++    return compare_bls_data(p_bd2, p_bd1);
++}
++
++const char *format_bls_data(struct blsdata *bd, const char *fmt)
++{
++    char *ml, *tmp;
++    const char *field, *rv;
++    int i, j, ml_len;
++
++    if (!bd || !fmt)
++	return NULL;
++
++    ml = malloc(1);
++    *ml = '\0';
++    ml_len = 0;
++
++    i = 0;
++    tmp = malloc(strlen(fmt) + 1);
++    strcpy(tmp, fmt);
++    while (fmt[i]) {
++	if (fmt[i] == '$') {
++	    i += 1;
++	    for (j = i; isalnum(fmt[j]) || fmt[j] == '-'; j++);
++	    if (j > i) {
++		tmp[j] = '\0';
++		field = get_bls_field(bd, tmp+i);
++		if (field) {
++		    ml_len += strlen(field);
++		    ml = realloc(ml, ml_len + 1);
++		    strcat(ml, field);
++		}
++		i = j;
++	    }
++	}
++	for (j = i; fmt[j] && fmt[j] != '$'; j++);
++	if (j > i) {
++	    ml_len += j - i;
++	    ml = realloc(ml, ml_len + 1);
++	    strncat(ml, fmt+i, j - i);
++	    ml[ml_len] = '\0';
++	    i = j;
++	}
++    }
++    free(tmp);
++
++    rv = refstrdup(ml);
++    free(ml);
++
++    return rv;
++}
++
++/*
++ * pads the numeric fields of a version string with zeros
++ * to get kernel versions to sort a little better
++ */
++const char *padver(const char *version, const int pad)
++{
++    int i, j, p, len;
++    char *bwd = NULL, *fwd = NULL, *tmp;
++    const char *rv;
++
++    if (version == NULL || pad > 9 || pad <= 0)
++	return version;
++
++    len = strlen(version) + 1;
++    bwd = malloc(len);
++    if (!bwd)
++	goto nomem;
++
++    p = pad;
++    for (i = len-1, j = 0; j <= len; i--, j++) {
++	if (i < 0 || version[i] == '.' || version[i] == '-') {
++	    if (p > 0) {
++		len += p;
++		if ((tmp = realloc(bwd, len))) {
++		    bwd = tmp;
++		} else {
++		    goto nomem;
++		}
++		while (p--) {
++		    bwd[j++] = '0';
++		}
++	    }
++	    p = pad;
++	} else if (isdigit(version[i])) {
++	    p--;
++	} else if (version[i]) {
++	    p = 0;
++	}
++	if (i >= 0) {
++	    bwd[j] = version[i];
++	}
++    }
++
++    fwd = malloc(len);
++    if (!fwd)
++	goto nomem;
++
++    tmp = bwd;
++    for (i = len-1; i >= 0; i--) {
++	fwd[i] = *tmp;
++	tmp++;
++    }
++    free(bwd);
++
++    rv = refstrdup(fwd);
++    free(fwd);
++
++    return rv;
++
++nomem:
++    dprintf("Out of memory error!\n");
++    free(bwd);
++    free(fwd);
++    return NULL;
++}
+diff --git a/com32/menu/readconfig.c b/com32/menu/readconfig.c
+index a433fadb..cf77dc95 100644
+--- a/com32/menu/readconfig.c
++++ b/com32/menu/readconfig.c
+@@ -21,10 +21,22 @@
+ #include <inttypes.h>
+ #include <colortbl.h>
+ #include <com32.h>
++#include <dirent.h>
+ #include <syslinux/adv.h>
+ #include <syslinux/config.h>
+ 
+ #include "menu.h"
++#include "bls.h"
++
++/* BLS1 entry global settings */
++char *bls1_labelf = NULL;
++char *bls1_format = NULL;
++char *bls1_sortby = NULL;
++char *bls1_pinmin = NULL;
++char *bls1_pinmax = NULL;
++int bls1_padver = BLS1_PADVER;
++int bls1_ascend = BLS1_ASCEND;
++int bls1_shwlbl = BLS1_SHWLBL;
+ 
+ /* Empty refstring */
+ const char *empty_string;
+@@ -597,6 +609,7 @@ static unsigned int ipappend = 0;
+ static struct labeldata ld;
+ 
+ static int parse_one_config(const char *filename);
++static int parse_bls1_dir(const char *dirname);
+ 
+ static char *is_kernel_type(char *cmdstr, enum kernel_type *type)
+ {
+@@ -1057,7 +1070,312 @@ do_include:
+ 	} else if (looking_at(p, "ui")) {
+ 	    has_ui = 1;
+ 	}
++
++	else if (looking_at(p, "bls1")) {
++	    p = skipspace(p + 4);
++	    if (looking_at(p, "include")) {
++		p = skipspace(p + 7);
++		parse_bls1_dir((*p) ? p : BLS1_DIR);
++	    } else if (looking_at(p, "labelf")) {
++		p = skipspace(p + 6);
++		bls1_labelf = realloc(bls1_labelf, strlen(p) + 1);
++		strcpy(bls1_labelf, p);
++	    } else if (looking_at(p, "format")) {
++		p = skipspace(p + 6);
++		bls1_format = realloc(bls1_format, strlen(p) + 1);
++		strcpy(bls1_format, p);
++	    } else if (looking_at(p, "sortby")) {
++		p = skipspace(p + 6);
++		bls1_sortby = realloc(bls1_sortby, strlen(p) + 1);
++		strcpy(bls1_sortby, p);
++	    } else if (looking_at(p, "pinmin")) {
++		p = skipspace(p + 6);
++		bls1_pinmin = realloc(bls1_pinmin, strlen(p) + 1);
++		strcpy(bls1_pinmin, p);
++	    } else if (looking_at(p, "pinmax")) {
++		p = skipspace(p + 6);
++		bls1_pinmax = realloc(bls1_pinmax, strlen(p) + 1);
++		strcpy(bls1_pinmax, p);
++	    } else if (looking_at(p, "padver")) {
++		bls1_padver = atoi(skipspace(p + 6));
++	    } else if (looking_at(p, "ascend")) {
++		bls1_ascend = atoi(skipspace(p + 6));
++	    } else if (looking_at(p, "shwlbl")) {
++		bls1_shwlbl = atoi(skipspace(p + 6));
++	    }
++	}
++    }
++}
++
++/*
++ * inspired by parse_config_file
++ */
++static int parse_bls1_file(struct blsdata *bd, const char *filename)
++{
++    FILE *f = NULL;
++    char line[MAX_LINE], *p, *pin;
++    const char *fmt, *tmp;
++
++    dprintf("Opening bls entry: %s ", filename);
++
++    f = fopen(filename, "r");
++    dprintf("%s\n", f ? "ok" : "failed");
++
++    if (!f)
++	return -1;
++
++    refstr_put(bd->filename);
++    bd->filename = refstrdup(filename);
++
++    while (fgets(line, sizeof line, f)) {
++	p = strchr(line, '\r');
++	if (p)
++	    *p = '\0';
++	p = strchr(line, '\n');
++	if (p)
++	    *p = '\0';
++
++	p = skipspace(line);
++
++	if (looking_at(p, "title")) {
++	    refstr_put(bd->title);
++	    bd->title = refstrdup(skipspace(p + 5));
++	} else if (looking_at(p, "version")) {
++	    refstr_put(bd->version);
++	    bd->version = refstrdup(skipspace(p + 7));
++	    bd->version0 = padver(bd->version, bls1_padver);
++	} else if (looking_at(p, "machine-id")) {
++	    refstr_put(bd->machine_id);
++	    bd->machine_id = refstrdup(skipspace(p + 10));
++	} else if (looking_at(p, "linux")) {
++	    refstr_put(bd->freax);
++	    bd->freax = refstrdup(skipspace(p + 5));
++	} else if (looking_at(p, "initrd")) {
++	    /* The "initrd" keyword can be specified multiple times */
++	    int clen = 0;
++	    int xlen = 0;
++
++	    p = skipspace(p + 6);
++	    xlen = strlen(p);
++
++	    if (xlen) {
++		if (bd->initrd) {
++		    clen = strlen(bd->initrd);
++		    bd->initrd[clen++] = ',';
++		}
++		bd->initrd = realloc(bd->initrd, clen + xlen + 1);
++		memcpy(bd->initrd + clen, p, xlen + 1);
++	    }
++	} else if (looking_at(p, "efi")) {
++	    refstr_put(bd->efi);
++	    bd->efi = refstrdup(skipspace(p + 3));
++	} else if (looking_at(p, "options")) {
++	    /* The "options" keyword can be specified multiple times */
++	    int clen = 0;
++	    int xlen = 0;
++
++	    p = skipspace(p + 7);
++	    xlen = strlen(p);
++
++	    if (xlen) {
++		if (bd->options) {
++		    clen = strlen(bd->options);
++		    bd->options[clen++] = ' ';
++		}
++		bd->options = realloc(bd->options, clen + xlen + 1);
++		memcpy(bd->options + clen, p, xlen + 1);
++	    }
++	} else if (looking_at(p, "devicetree")) {
++	    refstr_put(bd->devicetree);
++	    bd->devicetree = refstrdup(skipspace(p + 10));
++	} else if (looking_at(p, "architecture")) {
++	    refstr_put(bd->architecture);
++	    bd->architecture = refstrdup(skipspace(p + 12));
++	} else if (looking_at(p, "other")) {
++	    refstr_put(bd->other);
++	    bd->other = refstrdup(skipspace(p + 5));
++	}
++    }
++
++    fclose(f);
++
++    fmt = NULL;
++    tmp = NULL;
++
++    p = (bls1_pinmin) ? bls1_pinmin : BLS1_PINMIN;
++    pin = malloc(strlen(p) + 1);
++    strcpy(pin, p);
++    p = strchr(pin, ' ');
++    if (p) {
++	*p = '\0';
++	tmp = format_bls_data(bd, pin);
++	p++;
++	if (strstr(tmp, p))
++	    fmt = (bls1_ascend) ? "0%s" : "2%s";
++	refstr_put(tmp);
++    }
++    free(pin);
++
++    p = (bls1_pinmax) ? bls1_pinmax : BLS1_PINMAX;
++    pin = malloc(strlen(p) + 1);
++    strcpy(pin, p);
++    p = strchr(pin, ' ');
++    if (p) {
++	*p = '\0';
++	tmp = format_bls_data(bd, pin);
++	p++;
++	if (strstr(tmp, p))
++	    fmt = (bls1_ascend) ? "2%s" : "0%s";
++	refstr_put(tmp);
++    }
++    free(pin);
++
++    if (!fmt)
++	fmt = "1%s";
++
++    tmp = format_bls_data(bd, (bls1_sortby) ? bls1_sortby : BLS1_SORTBY);
++    refstr_put(bd->sort_field);
++    rsprintf(&bd->sort_field, fmt, tmp);
++    refstr_put(tmp);
++
++    return (bd->freax || bd->efi) ? 0 : -1;
++}
++
++/*
++ * inspired by syslinux/com32/modules/ls.c:display_directory
++ *
++ * returns the number of files that were successfully parsed,
++ * or -1 on error
++ */
++static int parse_bls1_dir(const char *dirname)
++{
++    DIR *d = NULL;
++    char *filename = NULL;
++    struct dirent *de = NULL;
++    struct blsdata *nbd = NULL, **bdx = NULL;
++    int i, n_bdx = 0, n_bd = 0;
++    int rv = 0, fn_len, dn_len;
++    struct menu *m = current_menu;
++    const char *tmp = NULL;
++
++    dprintf("Opening bls entries directory %s ", dirname);
++    d = opendir(dirname);
++    dprintf("%s\n", d ? "ok" : "failed");
++    if (!d)
++	return -1;
++
++    dn_len = strlen(dirname);
++
++    while ((de = readdir(d)) != NULL) {
++	if (de->d_type != DT_REG)
++	    continue;
++
++	fn_len = strlen(de->d_name);
++	if (strcmp(de->d_name+(fn_len-5), ".conf"))
++	    continue;
++
++	if (!(filename = malloc(dn_len + 1 + fn_len + 1)))
++	    goto nomem;
++
++	sprintf(filename, "%s/%s", dirname, de->d_name);
++
++	if (n_bd >= n_bdx) {
++	    struct blsdata **nbdx;
++
++	    nbdx = realloc(bdx, (n_bdx + BLS1_CHUNK) * sizeof *bdx);
++	    if (!nbdx)
++		goto nomem;
++
++	    bdx = nbdx;
++	    n_bdx += BLS1_CHUNK;
++	}
++
++	nbd = malloc(sizeof(struct blsdata));
++	if (!nbd)
++	    goto nomem;
++
++	memset(nbd, 0, sizeof *nbd);
++	if (parse_bls1_file(nbd, filename) == 0) {
++	    bdx[n_bd++] = nbd;
++	    rv++;
++	} else {
++	    clear_bls_data(nbd);
++	    free(nbd);
++	}
++
++	free(filename);
++    }
++
++    closedir(d);
++
++    if (bls1_ascend) {
++	qsort(bdx, n_bd, sizeof *bdx, compare_bls_data_asc);
++    } else {
++	qsort(bdx, n_bd, sizeof *bdx, compare_bls_data_des);
++    }
++
++    /*
++     * For each of the BLS1 entries, do essentially
++     * the same as the looking_at(p, "label") clause
++     * of the parse_config_file function
++    */
++    for (i = 0; i < n_bd; i++) {
++	record(m, &ld, append);
++
++	/*
++	 * labels are autonumbered
++	 * with a user-configurable format
++	 * that defaults to "BLS%03d"
++	 */
++	rsprintf(
++	    &ld.label, (bls1_labelf) ? bls1_labelf : BLS1_LABELF, i+1
++	);
++
++	if (bdx[i]->freax) {
++	    ld.kernel = refstrdup(bdx[i]->freax);
++	    ld.type = KT_LINUX;
++	} else {
++	    ld.kernel = refstrdup(bdx[i]->efi);
++	    ld.type = KT_KERNEL;
++	}
++	ld.passwd = NULL;
++	ld.append = refstrdup(bdx[i]->options);
++	ld.initrd = refstrdup(bdx[i]->initrd);
++	ld.menulabel = format_bls_data(
++	    bdx[i], (bls1_format) ? bls1_format : BLS1_FORMAT
++	);
++	ld.helptext = NULL;
++	ld.ipappend = ipappend;
++	ld.menudefault = ld.menuhide = ld.menuseparator =
++	    ld.menudisabled = ld.menuindent = 0;
++
++	if (bls1_shwlbl) {
++	    tmp = refstrdup(ld.menulabel);
++	    refstr_put(ld.menulabel);
++	    rsprintf(&ld.menulabel, "%s%s", ld.label, tmp);
++	    refstr_put(tmp);
++	}
++
++	clear_bls_data(bdx[i]);
++	free(bdx[i]);
++    }
++    free(bdx);
++
++    return rv;
++
++nomem:
++    dprintf("Out of memory error!\n");
++    free(filename);
++    for (i = 0; i < n_bd; i++) {
++	clear_bls_data(bdx[i]);
++	free(bdx[i]);
+     }
++    free(bdx);
++    clear_bls_data(nbd);
++    free(nbd);
++    if (d)
++	closedir(d);
++    return -1;
+ }
+ 
+ static int parse_one_config(const char *filename)
+-- 
+2.20.1
+

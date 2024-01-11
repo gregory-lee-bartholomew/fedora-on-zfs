@@ -1,0 +1,37 @@
+# vim:set ts=3:
+
+[Unit]
+Description=the anaconda installation program
+Wants=instperf.service
+Wants=rsyslog.service
+Wants=systemd-udev-settle.service
+Wants=NetworkManager.service
+After=instperf.service
+After=rsyslog.service
+After=systemd-udev-settle.service
+After=NetworkManager.service
+After=anaconda-sshd.service
+
+[Service]
+EnvironmentFile=/host/config/evariables.conf
+Type=oneshot
+WorkingDirectory=/root
+ExecStart=/usr/sbin/anaconda \
+	--text \
+	--dirinstall \
+	--repo $REPO \
+	--kickstart /host/fedora-kickstarts/fedora-on-zfs.ks
+ExecStop=/usr/bin/systemctl --force poweroff
+ExecStopPost=-/usr/bin/stty sane
+ExecStopPost=-/usr/bin/perl -e '$|=1; print "' \
+"uh-oh, the anaconda installer appears to have failed" \
+"run ssh -p ${SSHPORT} root@127.0.0.1 to debug the installer" \
+"or press any key to terminate the installer" \
+'\n";'
+ExecStopPost=-/usr/bin/read -n 1 -s
+ExecStopPost=/usr/bin/systemctl --force poweroff
+StandardInput=tty
+TTYPath=/dev/ttyS0
+TTYReset=yes
+TimeoutSec=0
+

@@ -1,0 +1,9 @@
+[Unit]
+ConditionKernelCommandLine=!ip=ibft
+ConditionKernelCommandLine=!rd.iscsi.ibft
+Description=Anaconda NetworkManager configuration
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/anaconda-disable-nm-ibft-plugin

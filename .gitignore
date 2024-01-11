@@ -1,0 +1,7 @@
+/updates/etc/pki
+/updates/etc/ssh
+/fedora-kickstarts
+/bootsync
+/homelock
+/efi
+/[0-9][0-9]
