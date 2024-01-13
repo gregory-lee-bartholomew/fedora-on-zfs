@@ -68,11 +68,11 @@ printf '\e[0m\n'
 # argument processing
 declare -a REST=()
 for p in "$@"; do
-   case "$p" in
+	case "$p" in
 		(-h)
 			usage
 		;;
-      (--help)
+		(--help)
 			usage
 		;;
 		(--text)
@@ -89,7 +89,7 @@ for p in "$@"; do
 		(*)
 			REST+=("$p")
 		;;
-   esac
+	esac
 done
 
 declare -a FILE=()
@@ -109,7 +109,6 @@ if [[ ${#FILE[@]} -lt 2 ]]; then
 fi
 
 for p in "${REST[@]}"; do
-	[[ ${p:0:1} == - ]] || continue
 	if [[ -n ${QEMU[$p]} ]]; then
 		unset QEMU["$p"]
 	fi
