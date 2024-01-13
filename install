@@ -152,10 +152,10 @@ for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
 	" $ks | grep -v '^autopart\b' > $RV/$ks
 done
 printf -- '%b' 'repo ' \
-   '--name=fedora ' \
-   "--baseurl=${FREP%%*(/)}" \
-      "/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
-   > "$RV/fedora-kickstarts/fedora-repo.ks"
+	'--name=fedora ' \
+	"--baseurl=${FREP%%*(/)}" \
+		"/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
+	> "$RV/fedora-kickstarts/fedora-repo.ks"
 
 if [[ $KS == fedora-disk-minimal.ks ]]; then
 	tr -d '\t' <<- END
