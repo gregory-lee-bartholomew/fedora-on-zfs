@@ -135,6 +135,12 @@ if [[ ${MODE[*]} =~ spice ]]; then
 	END
 fi
 
+# override the inhibitor override
+mkdir -p /run/systemd/logind.conf.d
+printf '[Login]\nLidSwitchIgnoreInhibited=no\n' \
+	> /run/systemd/logind.conf.d/override.conf
+systemctl daemon-reload || :
+
 # prevent the system from going into suspend mode during the installation
 declare -a INHIBIT=()
 if [[ -x /usr/bin/systemd-inhibit ]]; then
