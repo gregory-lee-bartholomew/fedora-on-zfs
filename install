@@ -354,6 +354,9 @@ END
 
 sleep 3
 
+# prevent systemd-oomd from killing the fedora-on-zfs installer
+systemctl stop systemd-oomd.service systemd-oomd.socket &>/dev/null || :
+
 # prevent the system from going into suspend mode during the installation
 declare -a INHIBIT=()
 if [[ -x /usr/bin/systemd-inhibit ]]; then
