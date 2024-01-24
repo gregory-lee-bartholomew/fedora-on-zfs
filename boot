@@ -135,7 +135,19 @@ if [[ ${MODE[*]} =~ spice ]]; then
 	END
 fi
 
-"qemu-system-${ARCH}" \
+# prevent the system from going into suspend mode during the installation
+declare -a INHIBIT=()
+if [[ -x /usr/bin/systemd-inhibit ]]; then
+	INHIBIT=(
+		systemd-inhibit
+		--what='idle:sleep:shutdown'
+		--who='fedora-on-zfs'
+		--why='installation in progress'
+		--mode='block'
+	)
+fi
+
+"${INHIBIT[@]}" "qemu-system-${ARCH}" \
 	-device 'virtio-rng-pci' \
 	-device 'virtio-net,netdev=n0' \
 	-netdev "user,id=n0,hostfwd=tcp:127.0.0.1:${SSHPORT}-:22" \
