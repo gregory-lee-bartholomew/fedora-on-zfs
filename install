@@ -92,7 +92,7 @@ fi
 # the qemu options '-smp', '-m' and '-accel' are set to some high defaults
 # but the user can override them on this script's command line
 ARGC=0
-declare -A QEMU=(['-smp']='4' ['-m']='16G' ['-accel']='kvm')
+declare -A QEMU=(['-smp']='4' ['-m']='8G' ['-accel']='kvm')
 while (( $# > 0 )) && [[ $1 != -- ]]; do
 	if [[ ${1:0:1} == - ]]; then
 		if [[ $1 == *=* ]]; then
