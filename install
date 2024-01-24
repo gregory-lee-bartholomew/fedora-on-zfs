@@ -261,7 +261,7 @@ if [[ $RV -le 34 ]]; then
 	ZKEY="zfs-release.fc$RV.noarch.rpm"
 else
 	curl -sf ${ZREP%%*(/)}/ \
-		| grep -o "zfs-release[[:alnum:]\.\-]*.fc$RV.noarch.rpm" \
+		| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 		| sort -r -t '.' -k 2 | read ZKEY
 fi
 RPMS=(
