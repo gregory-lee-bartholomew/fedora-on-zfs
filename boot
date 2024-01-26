@@ -15,16 +15,23 @@ trap \
 err
 
 uname -m | read ARCH
-grep -c '^processor' /proc/cpuinfo | read CPUS
 
-# defaults (these can be overridden on the command-line)
+# determine how much physical and virtual memory is available (in KB)
+grep -m 1 -o '[0-9]\+' /proc/meminfo \
+   | read PHYS_MEM
+swapon --show=size,name --bytes --noheadings | grep -v zram \
+   | cut -d ' ' -f 1 | paste -sd+ | bc | numfmt --to-unit=Ki --round=down \
+   | read VIRT_MEM || :
+
+# defaults (these can be overridden on the command line)
 declare -A QEMU=(
 	['-name']='fedora'
-	['-machine']='accel=kvm,vmport=off'
 	['-cpu']='max'
-	['-smp']="$(($CPUS/2+1))"
-	['-m']="$(($(grep -m 1 -o '[0-9]\+' /proc/meminfo)/2097152))G"
+	['-smp']="$(grep -c '^processor\b' /proc/cpuinfo)"
+	['-m']="$((${PHYS_MEM}*3/4+${VIRT_MEM:-0}))K"
 )
+
+grep -q '\bvmx\|svm\b' /proc/cpuinfo && QEMU['-accel']='kvm'
 
 # default video mode (overridden by --text)
 declare -a MODE=(

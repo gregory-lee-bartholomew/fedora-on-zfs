@@ -25,9 +25,9 @@ shopt -s lastpipe
 shopt -s extglob
 
 # make the free space available to the installer
-# equal to half the memory passed to qemu
+# equal to 3/4 the memory passed to qemu
 mount -o remount,\
-size="$(($(grep -m 1 -o '[0-9]*' /proc/meminfo)/2))K" /run
+size="$(($(grep -m 1 -o '[0-9]*' /proc/meminfo)*3/4))K" /run
 
 for d in /dev/vd[a-z]; do
 	l=${d: -1}
