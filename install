@@ -171,6 +171,7 @@ printf -- '%b' 'repo ' \
 		"/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
 	> "$RV/fedora-kickstarts/fedora-repo.ks"
 
+ENCRYPTION='off'
 if [[ $KS == fedora-disk-minimal.ks ]]; then
 	tr -d '\t' <<- END
 		I see you selected the fedora-disk-minimal kickstart.
@@ -194,10 +195,10 @@ if [[ $KS == fedora-disk-minimal.ks ]]; then
 		[[ -e homelock ]] || git clone \
 			'https://github.com/gregory-lee-bartholomew/homelock.git'
 		[[ -e homelock ]] && cp -r homelock "$RV"
-	else
-		ENCRYPTION='off'
-		[[ -e $RV/homelock ]] && rm -rf "$RV/homelock"
 	fi
+fi
+if [[ $ENCRYPTION == off ]]; then
+	[[ -e $RV/homelock ]] && rm -rf "$RV/homelock"
 fi
 printf '\n'
 
