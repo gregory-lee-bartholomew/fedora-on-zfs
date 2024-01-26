@@ -342,8 +342,16 @@ for fd in OVMF_{CODE,VARS}.fd; do
 	fi
 done
 
+# print the disk ids for the devices that are about to be erased
+for f in "${FILE[@]}"; do
+	[[ -b $f ]] || continue
+	udevadm info -q property --property=ID_MODEL --value "$f" | read MODEL || :
+	printf '\e[1;31m%s: %s\e[22;39m\n' "$f" "${MODEL:-unknown device model}"
+done
+printf '\n'
+
 # give the user one last chance to abort
-printf "warning: this will erase all data from: \e[1m${FILE[*]}\e[22m\n"
+printf "warning: this will erase all data from: \e[1;31m${FILE[*]}\e[22;39m\n"
 read -e -p 'are you sure you want to continue? [y/n]: ' ANSWER
 if [[ $ANSWER == y ]]; then
 	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
