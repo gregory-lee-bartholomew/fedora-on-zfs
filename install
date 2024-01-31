@@ -153,6 +153,7 @@ fi
 if ! [[ -e fedora-kickstarts ]]; then
 	git clone 'https://pagure.io/fedora-kickstarts.git'
 fi
+(cd fedora-kickstarts && git checkout "f$RV") || exit 1
 if ! [[ -f fedora-kickstarts/$KS ]]; then
 	warn "error: kickstart file 'fedora-kickstarts/$KS' not found"
 	exit 1
