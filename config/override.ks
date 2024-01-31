@@ -6,7 +6,7 @@
 text
 lang en_US.UTF-8
 keyboard us
-timezone US/Central
+timezone UTC
 
 # the bootloader installation will be done in the post-install script (below)
 bootloader --location=none --disabled
