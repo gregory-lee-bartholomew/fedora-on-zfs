@@ -613,7 +613,7 @@ do
 	fi
 	# convert the $args string to an $ARGS array
 	# (there is probably a better way to do this)
-	. <(cat <<< "declare -a ARGS=($args)")
+	. <(cat <<< "declare -a ARGS=(${args//[()]/\\&})") || continue
 	if [[ ${ARGS[-1]} != -* ]]; then
 		if
 			chroot "$ANACONDA_ROOT_PATH" \
@@ -641,7 +641,7 @@ do
 			restorecon -r "/home/$USERNAME"
 		END
 	else
-		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd "${args[@]}"
+		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd --help
 	fi
 	printf '\n'
 done
