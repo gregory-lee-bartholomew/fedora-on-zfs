@@ -499,7 +499,7 @@ systemctl disable initial-setup.service &> /dev/null
 printf "\n\e[0;97;7m finished $SELF \e[0m\n\n"
 %end
 
-%post --interpreter=/usr/bin/bash --erroronfail --nochroot
+%post --interpreter=/usr/bin/bash --nochroot
 
 exec < /dev/ttyS0 &> /dev/ttyS0
 stty sane
@@ -507,14 +507,37 @@ stty sane
 SELF='scripts/post/4.sh'
 printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 
-function my_useradd {
-	useradd -R "$ANACONDA_ROOT_PATH" -M "$@" || return 1
+shopt -s lastpipe
+
+function _useradd {
+	trap "return 1" int
+
 	export USERNAME="${@: -1}"
+
+	if
+		perl -e 'exit $ENV{"USERNAME"} =~ m{^[a-z_][[:word:].-]{0,31}$}iaa;'
+	then
+		printf "error: invalid username\n\n"
+		return 1
+	fi
+
+	if
+		chroot "$ANACONDA_ROOT_PATH" /usr/bin/id -u "$USERNAME" &> /dev/null
+	then
+		printf "error: account '$USERNAME' already exists\n\n"
+		return 1
+	fi
+
+	useradd -R "$ANACONDA_ROOT_PATH" -M "$@" || return 1
+
+	trap "stty echo; userdel -R '$ANACONDA_ROOT_PATH' '$USERNAME'; return 1" int
 
 	stty -echo
 	perl <<- 'FIM'
 		open STDIN, '<', '/dev/ttyS0' || die;
 		open SAVED, '>&', STDOUT || die;
+
+		SAVED->autoflush(1);
 
 		my $pw;
 
@@ -551,7 +574,15 @@ function my_useradd {
 				while (<STDIN>) {
 					print SAVED "\n";
 					$pw = $_;
-					print;
+					if (length($pw) > 8) {
+						print;
+					} else {
+						print SAVED
+							"error: password less than eight characters, ",
+							"retrying ...\n",
+							"New password: "
+						;
+					}
 				}
 			} else {
 				if (open STDIN, '<&', P1) {
@@ -579,6 +610,27 @@ function my_useradd {
 	FIM
 	stty echo
 
+	if ! mountpoint -q "$ANACONDA_ROOT_PATH/home/$USERNAME"; then
+		userdel -R "$ANACONDA_ROOT_PATH" "$USERNAME"
+		printf "error: failed to create account '$USERNAME'\n\n"
+		return 1
+	fi
+
+	trap - int
+
+	cat <<- 'END' | chroot "$ANACONDA_ROOT_PATH" /usr/bin/bash
+		shopt -s dotglob
+		. <(sed -n '/^HOME_MODE/ { s/\s\+/=/; p; }' /etc/login.defs)
+		if ! mountpoint -q "/home/$USERNAME"; then
+			printf "warning: failed to initialize '/home/$USERNAME'\n\n"
+			exit 0
+		fi
+		cp -r /etc/skel/* "/home/$USERNAME"
+		chmod -R "${HOME_MODE:-0700}" "/home/$USERNAME"
+		chown -R "$USERNAME:" "/home/$USERNAME"
+		restorecon -r "/home/$USERNAME"
+	END
+
 	if [[ $ENCRYPTION == on ]]; then
 		. <(grep '^USERS=.*$' "$ANACONDA_ROOT_PATH/etc/security/homelock.conf")
 		USERS+=($USERNAME)
@@ -586,6 +638,7 @@ function my_useradd {
 			"$ANACONDA_ROOT_PATH/etc/security/homelock.conf"
 	fi
 
+	printf "created account '$USERNAME'\n\n"
 	return 0
 }
 
@@ -597,54 +650,60 @@ printf '\n'
 
 # ask to create additional accounts
 while
+	trap "break" int
 	cat <<- 'END'
-		if you want to pre-create another account, then
-		enter a username now. (or press enter to finish.)
-		(enter "-G wheel <username>" to grant the user [1msudo[22m.)
-		(enter "-h" to see a list of configuration options.)
-		(the username must be last if options are supplied.)
+
+		To create a user account, enter a username now.
+
+		Include [1m-G wheel[22m to grant the user [1msudo[22m.
+		Include [1m-c "<display name>"[22m to set a display name
+		Enter [1m-h[22m (or nothing) to list all options.
+
+		The username must:
+
+		- be last if options are supplied
+		- start with a letter
+		- be alphanumeric (a-z, 0-9)
+		  dots (.), dashes (-), and underscores (_) are also allowed
+		- be 32 characters or less
+
+		Press [1mctrl-c[22m to abort or end creating accounts.
 
 	END
-	read -p "useradd: " args
+	sleep 1 # prevent rapid looping in case something goes wrong
+	# get user input as an array (preserving quoted strings)
+	# https://perldoc.perl.org/perlre#Regular-Expressions
+	printf 'useradd: '; perl <<- 'FIM' | readarray -t -d $'\0' ARGS
+		open STDIN, '<', '/dev/ttyS0' || die;
+		$\  = "\x00"; # output record separator
+		$sp = "\x20"; # space
+		$dq = "\x22"; # double quote
+		$sq = "\x27"; # single quote
+		$dl = $sp . $dq . $sq; # delimiters
+		$in = <> =~ s{[\x00-\x1f\x7f]}{$sp}gr; # input (sanitized)
+		print foreach " $in " =~ m{
+			(?<=$sq)(?:[^$sq\\]++|\\.)*+(?=$sq) |
+			(?<=$dq)(?:[^$dq\\]++|\\.)*+(?=$dq) |
+			(?<=$sp)(?:[^$dl\\]++|\\.)++(?=$sp)
+		}gx;
+	FIM
 do
-	if [[ $args =~ ^[[:space:]]*$ ]]; then
-		printf '\n'
-		break
-	fi
-	# convert the $args string to an $ARGS array
-	# (there is probably a better way to do this)
-	. <(cat <<< "declare -a ARGS=(${args//[()]/\\&})") || continue
-	if [[ ${ARGS[-1]} != -* ]]; then
-		if
-			chroot "$ANACONDA_ROOT_PATH" \
-				/usr/bin/id -u "${ARGS[-1]}" &> /dev/null
-		then
-			printf "error: account '${ARGS[-1]}' already exists\n\n"
-			continue
-		fi
-		my_useradd "${ARGS[@]}" || continue
-		if ! mountpoint -q "$ANACONDA_ROOT_PATH/home/${ARGS[-1]}"; then
-			printf "error: failed to create account '${ARGS[-1]}'\n\n"
-			continue
-		fi
-		cat <<- 'END' | chroot "$ANACONDA_ROOT_PATH" \
-			/usr/bin/env USERNAME="${ARGS[-1]}" /usr/bin/bash
-			shopt -s dotglob
-			. <(sed -n '/^HOME_MODE/ { s/\s\+/=/; p; }' /etc/login.defs)
-			if ! mountpoint -q "/home/$USERNAME"; then
-				printf "error: failed to initialize '/home/$USERNAME'\n"
-				exit 0
-			fi
-			cp -r /etc/skel/* "/home/$USERNAME"
-			chmod -R "${HOME_MODE:-0700}" "/home/$USERNAME"
-			chown -R "$USERNAME:" "/home/$USERNAME"
-			restorecon -r "/home/$USERNAME"
-		END
+	trap "continue" int
+	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
+		trap - int
+		_useradd "${ARGS[@]}"
 	else
-		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd --help
+		printf '\n\n'
+		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd --help \
+			| perl -gpe '
+				s/^.*Options:\n/useradd: \[options\] <username>\n\n/s;
+				s/^\s+-(?:b|-btrfs|d|D|m|M|p|R|P)\b.*?\n(?:\s+[^\s-].*?\n)*//mg;
+			'
 	fi
 	printf '\n'
 done
+trap - int
+printf '\n'
 
 printf "\n\e[0;97;7m finished $SELF \e[0m\n\n"
 %end
