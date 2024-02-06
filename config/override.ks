@@ -670,10 +670,10 @@ while
 		Press [1mctrl-c[22m to abort or end creating accounts.
 
 	END
-	sleep 1 # prevent rapid looping in case something goes wrong
 	# get user input as an array (preserving quoted strings)
 	# https://perldoc.perl.org/perlre#Regular-Expressions
 	printf 'useradd: '; perl <<- 'FIM' | readarray -t -d $'\0' ARGS
+		$SIG{__DIE__} = sub { kill 'INT', getppid; };
 		open STDIN, '<', '/dev/ttyS0' || die;
 		$\  = "\x00"; # output record separator
 		$sp = "\x20"; # space
