@@ -534,6 +534,8 @@ function _useradd {
 
 	stty -echo
 	perl <<- 'FIM'
+		$SIG{__DIE__} = sub { kill 'INT', getppid; };
+
 		open STDIN, '<', '/dev/ttyS0' || die;
 		open SAVED, '>&', STDOUT || die;
 
@@ -595,11 +597,14 @@ function _useradd {
 							kill 'USR1', $p1;
 							exit 0;
 						}
-						print
-							"failed to set $ENV{'USERNAME'}'s password, ",
-							"retrying ...\n"
-						;
-						redo;
+						if ($? == 1) {
+							print
+								"failed to set $ENV{'USERNAME'}'s password, ",
+								"retrying ...\n"
+							;
+							redo;
+						}
+						die;
 					}
 				}
 				kill 'TERM', $p1;
@@ -690,6 +695,10 @@ while
 do
 	trap "continue" int
 	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
+		if [[ ${#ARGS[@]} -gt 1 ]] && [[ ${ARGS[0]} != -* ]]; then
+			printf 'error: the username must be the last parameter\n\n'
+			continue
+		fi
 		trap - int
 		_useradd "${ARGS[@]}"
 	else
