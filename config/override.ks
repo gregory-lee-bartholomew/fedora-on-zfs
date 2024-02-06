@@ -656,7 +656,7 @@ while
 		To create a user account, enter a username now.
 
 		Include [1m-G wheel[22m to grant the user [1msudo[22m.
-		Include [1m-c "<display name>"[22m to set a display name
+		Include [1m-c "<display name>"[22m to set a display name.
 		Enter [1m-h[22m (or nothing) to list all options.
 
 		The username must:
