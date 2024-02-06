@@ -534,8 +534,6 @@ function _useradd {
 
 	stty -echo
 	perl <<- 'FIM'
-		$SIG{__DIE__} = sub { kill 'INT', getppid; };
-
 		open STDIN, '<', '/dev/ttyS0' || die;
 		open SAVED, '>&', STDOUT || die;
 
@@ -604,7 +602,6 @@ function _useradd {
 							;
 							redo;
 						}
-						die;
 					}
 				}
 				kill 'TERM', $p1;
