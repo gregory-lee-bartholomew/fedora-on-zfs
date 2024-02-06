@@ -259,8 +259,9 @@ fi
 for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
 	if ! [[ -e $RV/$BF ]]; then
 		printf "downloading $BF for fedora linux $RV on $ARCH\n"
-		curl -\# -f -o "$RV/$BF" \
+		curl -\# -f --remove-on-error -o "$RV/.partial" \
 			-L "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/$BF"
+		mv "$RV/.partial" "$RV/$BF"
 	fi
 done
 printf '\n'
