@@ -617,6 +617,7 @@ function _useradd {
 	if ! mountpoint -q "$ANACONDA_ROOT_PATH/home/$USERNAME"; then
 		userdel -R "$ANACONDA_ROOT_PATH" "$USERNAME"
 		printf "error: failed to create account '$USERNAME'\n\n"
+		sleep 3
 		return 1
 	fi
 
@@ -643,6 +644,7 @@ function _useradd {
 	fi
 
 	printf "created account '$USERNAME'\n\n"
+	sleep 3
 	return 0
 }
 
