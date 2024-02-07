@@ -571,10 +571,11 @@ function _useradd {
 			my $p1 = open(P1, '-|') // die;
 			if ($p1 == 0) {
 				$SIG{'USR1'} = \&mkfs;
+				my $pass = 0;
 				while (<STDIN>) {
 					print SAVED "\n";
 					$pw = $_;
-					if (length($pw) > 8) {
+					if (length($pw) > 8 || $pass > 0) {
 						print;
 					} else {
 						print SAVED
@@ -583,6 +584,7 @@ function _useradd {
 							"New password: "
 						;
 					}
+					$pass++;
 				}
 			} else {
 				if (open STDIN, '<&', P1) {
