@@ -28,37 +28,12 @@ function usage {
 	exit 1
 }
 
-function get_keys {
-	RELEASE=$1; shift
-	TEMPDIR=$(mktemp -d)
-	KEYSDIR='updates/etc/pki/rpm-gpg'
-
-	# fetch the keys
-	which curl rpm2cpio cpio gpg 1>/dev/null
-	while [[ $# > 0 ]]; do
-		curl -s -L "$1" | rpm2cpio | cpio -i -u -d --quiet --directory="$TEMPDIR" \
-			"./etc/pki/rpm-gpg/*"
-		shift
-	done
-
-	# ask the user to verify the keys
-	rm -rf "$KEYSDIR"
-	mkdir -p "$KEYSDIR"
-	find $TEMPDIR -type f -name 'RPM-GPG-KEY-*' -print0 \
-		| readarray -d '' -t KEYS
-	for key in "${KEYS[@]}"; do
-		[[ $key =~ [^/]*zfs[^/]*$ ]] || [[ $key =~ $RELEASE-primary$ ]] || continue
-
-		gpg --show-keys "$key"
-
-		read -e -p 'is the gpg key fingerprint shown above correct? [y/n]: ' ANSWER
-		if [[ $ANSWER == y ]]; then
-			cp "$key" "$KEYSDIR"
-		else
-			printf "omitting ${key##*/}\n"
-		fi
-
-		printf '\n'
+function prompt {
+	ANSWER=''
+	while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+		printf "$1 [y/n]: "
+		read -r -n 1 ANSWER
+		[[ $ANSWER == '' ]] || printf '\n'
 	done
 }
 
@@ -177,7 +152,8 @@ if [[ $KS == fedora-disk-minimal.ks ]]; then
 	tr -d '\t' <<- END
 		I see you selected the fedora-disk-minimal kickstart.
 
-		This installer can include a simple PAM script called "homelock" which
+		This installer can include a simple PAM script called \
+		[1mhomelock[22m which
 		can automate the locking and unlocking of user home directories while
 		signing-in and signing-out on the console. It [3monly[23m works with \
 		console
@@ -190,8 +166,8 @@ if [[ $KS == fedora-disk-minimal.ks ]]; then
 		sync.
 
 	END
-	read -e -p 'Enable encrypted home directories via homelock? [y/n]: ' ANSWER
-	if [[ $ANSWER == y* ]]; then
+	prompt 'Enable encrypted home directories via homelock?'
+	if [[ $ANSWER == y ]]; then
 		ENCRYPTION='on'
 		[[ -e homelock ]] || git clone \
 			'https://github.com/gregory-lee-bartholomew/homelock.git'
@@ -208,8 +184,8 @@ if [[ $KS == fedora-disk-minimal.ks ]] && [[ $RV -ge 38 ]]; then
 	cat <<- 'END'
 		I see you selected the fedora-disk-minimal kickstart.
 	END
-	read -e -p 'Would you like [1mSway[22m with that? [y/n]: ' ANSWER
-	[[ $ANSWER == y* ]] && ADD_SWAYWM='yes'
+	prompt 'Would you like [1mSway[22m with that?'
+	[[ $ANSWER == y ]] && ADD_SWAYWM='yes'
 fi
 printf '\n'
 
@@ -312,7 +288,7 @@ for key in "${KEYS[@]}"; do
 
 	gpg --show-keys "$key"
 
-	read -e -p 'is the gpg key fingerprint shown above correct? [y/n]: ' ANSWER
+	prompt 'is the gpg key fingerprint shown above correct?'
 	if [[ $ANSWER == y ]]; then
 		cp "$key" "$KEYSDIR"
 	else
@@ -354,7 +330,7 @@ printf '\n'
 
 # give the user one last chance to abort
 printf "warning: this will erase all data from: \e[1;31m${FILE[*]}\e[22;39m\n"
-read -e -p 'are you sure you want to continue? [y/n]: ' ANSWER
+prompt 'are you sure you want to continue?'
 if [[ $ANSWER == y ]]; then
 	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
 		warn "$STATUS"
