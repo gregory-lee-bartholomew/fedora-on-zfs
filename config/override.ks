@@ -518,6 +518,7 @@ function _useradd {
 		perl -e 'exit $ENV{"USERNAME"} =~ m{^[a-z_][[:word:].-]{0,31}$}iaa;'
 	then
 		printf "error: invalid username\n\n"
+		sleep 3
 		return 1
 	fi
 
@@ -525,10 +526,16 @@ function _useradd {
 		chroot "$ANACONDA_ROOT_PATH" /usr/bin/id -u "$USERNAME" &> /dev/null
 	then
 		printf "error: account '$USERNAME' already exists\n\n"
+		sleep 3
 		return 1
 	fi
 
-	useradd -R "$ANACONDA_ROOT_PATH" -M "$@" || return 1
+	if
+		! useradd -R "$ANACONDA_ROOT_PATH" -M "$@"
+	then
+		sleep 3
+		return 1
+	fi
 
 	trap "stty echo; userdel -R '$ANACONDA_ROOT_PATH' '$USERNAME'; return 1" int
 
