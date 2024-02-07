@@ -709,6 +709,8 @@ do
 				s/^.*Options:\n/useradd: \[options\] <username>\n\n/s;
 				s/^\s+-(?:b|-btrfs|d|D|m|M|p|R|P)\b.*?\n(?:\s+[^\s-].*?\n)*//mg;
 			'
+			printf 'press any key to continue\n'
+			read -r -s -n 1
 	fi
 	printf '\n'
 done
