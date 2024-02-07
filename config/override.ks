@@ -584,6 +584,7 @@ function _useradd {
 					$pw = $_;
 					if (length($pw) > 8 || $pass > 0) {
 						print;
+						$pass++;
 					} else {
 						print SAVED
 							"error: password less than eight characters, ",
@@ -591,7 +592,6 @@ function _useradd {
 							"New password: "
 						;
 					}
-					$pass++;
 				}
 			} else {
 				if (open STDIN, '<&', P1) {
