@@ -250,6 +250,9 @@ printf '\n'
 printf '\n'
 
 # fetch the gpg rpms and extract the gpg keys
+trap "printf '%s\n' \
+	'error: ZFS repo gpg key for Fedora Linux $RV not found at $ZREP' \
+" err
 if [[ $RV -le 34 ]]; then
 	ZKEY="zfs-release.fc$RV.noarch.rpm"
 else
@@ -257,6 +260,7 @@ else
 		| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 		| sort -r -t '.' -k 2 | read ZKEY
 fi
+trap - err
 RPMS=(
 "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os"\
 "/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm"
