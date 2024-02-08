@@ -537,7 +537,8 @@ function _useradd {
 		return 1
 	fi
 
-	trap "stty echo; userdel -R '$ANACONDA_ROOT_PATH' '$USERNAME'; return 1" int
+	UNDO=(userdel -R "$ANACONDA_ROOT_PATH" -r "$USERNAME")
+	trap "stty echo; ${UNDO[*]} &> /dev/null; return 1" int
 
 	stty -echo
 	perl <<- 'FIM'
@@ -622,7 +623,7 @@ function _useradd {
 	stty echo
 
 	if ! mountpoint -q "$ANACONDA_ROOT_PATH/home/$USERNAME"; then
-		userdel -R "$ANACONDA_ROOT_PATH" "$USERNAME"
+		"${UNDO[@]}" &> /dev/null
 		printf "error: failed to create account '$USERNAME'\n\n"
 		sleep 3
 		return 1
