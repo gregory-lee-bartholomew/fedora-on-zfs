@@ -250,17 +250,21 @@ printf '\n'
 printf '\n'
 
 # fetch the gpg rpms and extract the gpg keys
+trap -p err | read -r PREVIOUS_ERR_TRAP || :
 trap "printf '%s\n' \
 	'error: ZFS repo gpg key for Fedora Linux $RV not found at $ZREP' \
 " err
-if [[ $RV -le 34 ]]; then
+if [[ $ZREP =~ \.rpm$ ]]; then
+	ZKEY="${ZREP##*/}"
+	ZREP="${ZREP%/*}"
+elif [[ $RV -le 34 ]]; then
 	ZKEY="zfs-release.fc$RV.noarch.rpm"
 else
 	curl -sf ${ZREP%%*(/)}/ \
 		| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 		| sort -r -t '.' -k 2 | read ZKEY
 fi
-trap - err
+eval ${PREVIOUS_ERR_TRAP:-trap - err}
 RPMS=(
 "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os"\
 "/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm"
@@ -272,6 +276,7 @@ which curl rpm2cpio cpio 1>/dev/null
 for rpm in ${RPMS[*]}; do
 	printf "downloading $rpm ...\n"
 	if ! curl -s -L "$rpm" \
+		| tee "$RV/${rpm##*/}" \
 		| rpm2cpio \
 		| cpio -i -u -d --quiet --directory="$TEMPDIR" "./etc/pki/rpm-gpg/*"
 	then
@@ -410,7 +415,7 @@ fi
 		'rd.dm=0 rd.lvm=0 rd.luks=0 rd.md=0 ' \
 		"systemd.setenv=RELEASEVER=$RV systemd.setenv=BASEARCH=$ARCH " \
 		"systemd.setenv=REPO=${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/ " \
-		"systemd.setenv=GPGKEYS=$GPGKEYS " \
+		"systemd.setenv=ZKEY=$ZKEY " \
 		"systemd.setenv=ENCRYPTION=$ENCRYPTION " \
 		"systemd.setenv=ADD_SWAYWM=$ADD_SWAYWM " \
 		"inst.stage2=http://10.0.2.200/$RV " \

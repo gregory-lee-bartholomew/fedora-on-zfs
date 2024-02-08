@@ -41,9 +41,6 @@ for d in /dev/vd[a-z]; do
 done
 partprobe
 
-# import the gpg keys
-# rpm --import /etc/pki/rpm-gpg/*
-
 # kernel-devel is required to build the zfs driver
 dnf install -q -y --nogpgcheck --releasever=$RELEASEVER \
 	--repofrompath="fedora,$REPO" kernel-devel
@@ -54,15 +51,8 @@ systemctl start systemd-resolved.service
 sleep 1
 
 # build the zfs driver (uses dkms)
-if [[ $RELEASEVER -le 34 ]]; then
-	ZKEY="zfs-release.fc$RELEASEVER.noarch.rpm"
-else
-	curl -sf ${ZREP%%*(/)}/ \
-		| grep -o "zfs-release[[:alnum:]\.\-]*.fc$RELEASEVER.noarch.rpm" \
-		| sort -r -t '.' -k 2 | read ZKEY
-fi
 dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
-	"${ZREP%%*(/)}/$ZKEY"
+	"/host/$ZKEY"
 dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
 	--repo=fedora --repo=zfs zfs
 printf '\n'
@@ -167,6 +157,7 @@ printf '\n'
 
 # copy the gpg keys to the installed system
 cp -a /etc/pki/rpm-gpg/* "$ANACONDA_ROOT_PATH/etc/pki/rpm-gpg"
+cp "/host/$ZKEY" "$ANACONDA_ROOT_PATH/var/tmp"
 printf '\n'
 
 # initialize the installed system's unique machine id
@@ -202,14 +193,7 @@ rpm --import /etc/pki/rpm-gpg/* &> /dev/null
 
 # install zfs on the target system
 rpm --nodeps --erase zfs-fuse &> /dev/null || :
-if [[ $RELEASEVER -le 34 ]]; then
-	ZKEY="zfs-release.fc$RELEASEVER.noarch.rpm"
-else
-	curl -sf ${ZREP%%*(/)}/ \
-		| grep -o "zfs-release[[:alnum:]\.\-]*.fc$RELEASEVER.noarch.rpm" \
-		| sort -r -t '.' -k 2 | read ZKEY
-fi
-dnf install -q -y "${ZREP%%*(/)}/$ZKEY"
+dnf install -q -y "/var/tmp/$ZKEY"
 dnf install -q -y --repo=fedora --repo=zfs kernel-devel zfs zfs-dracut
 printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 printf '\n'
