@@ -260,11 +260,19 @@ if [[ $ZREP =~ \.rpm$ ]]; then
 elif [[ $RV -le 34 ]]; then
 	ZKEY="zfs-release.fc$RV.noarch.rpm"
 else
-	curl -sf ${ZREP%%*(/)}/ \
+	mktemp -d keys.XXX | read TEMP
+	cd "$TEMP"
+	git clone --no-checkout --depth 1 ${ZREP%%*(/)}/ .
+	git ls-tree --full-name --name-only -r HEAD | grep '^fedora/zfs-release' \
 		| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 		| sort -r -t '.' -k 2 | read ZKEY
+	cd - &>/dev/null
+	[[ $TEMP =~ keys....$ ]] && rm -rf "$TEMP"
 fi
 eval ${PREVIOUS_ERR_TRAP:-trap - err}
+if [[ $ZREP =~ zfsonlinux.github.com/?$ ]]; then
+	ZREP="${ZREP%%*(/)}/raw/master/fedora"
+fi
 RPMS=(
 "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os"\
 "/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm"
