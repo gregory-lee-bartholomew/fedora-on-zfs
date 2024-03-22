@@ -185,7 +185,7 @@ shopt -s extglob
 export MACHINE_ID="$(</etc/machine-id)"
 
 # remove random seed, the newly-\
-# installed instance should make it's own
+# installed instance should make its own
 rm -f /var/lib/systemd/random-seed
 
 # import the gpg keys
@@ -397,7 +397,7 @@ cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/kernel-update
 	/usr/bin/dnf --repo=updates --upgrades rq kernel --nvr | read KERNEL
 
 	if [[ -z $KERNEL ]]; then
-	   printf 'No kernel updates found, aborting ...'
+	   printf 'No kernel updates found, aborting ...\n'
 	   exit 1
 	fi
 
