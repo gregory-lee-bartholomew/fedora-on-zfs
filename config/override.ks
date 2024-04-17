@@ -380,7 +380,13 @@ cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/dnf
 	   exit 1
 	fi
 
-	/usr/bin/dnf --disablerepo='zfs*' --exclude='kernel*' "$@"
+	FILTER=("--exclude='kernel*'")
+
+	if ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
+	   FILTER+=("--disablerepo='zfs*'")
+	fi
+
+	/usr/bin/dnf "${FILTER[@]}" "$@"
 END
 chmod +x /usr/local/bin/dnf
 cat <<- 'END' > /usr/local/bin/zfs-update
