@@ -370,20 +370,25 @@ END
 cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/dnf
 	#!/usr/bin/bash
 
-	if printf '%s\n' "$@" | grep -q ^zfs; then
+	if ! printf '%s\n' "$@" | grep -q '^\(update\|upgrade\|up\)$'; then
+	   /usr/bin/dnf "$@"
+	   exit $?
+	fi
+
+	if printf '%s\n' "$@" | grep -q '^zfs'; then
 	   printf 'use `zfs-update` to update zfs.\n'
 	   exit 1
 	fi
 
-	if printf '%s\n' "$@" | grep -q ^kernel; then
+	if printf '%s\n' "$@" | grep -q '^kernel'; then
 	   printf 'use `kernel-update` to update the kernel.\n'
 	   exit 1
 	fi
 
-	FILTER=("--exclude='kernel*'")
+	FILTER=('--exclude=kernel*')
 
 	if ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
-	   FILTER+=("--disablerepo='zfs*'")
+	   FILTER+=('--disablerepo=zfs*')
 	fi
 
 	/usr/bin/dnf "${FILTER[@]}" "$@"
