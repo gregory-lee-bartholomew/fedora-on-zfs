@@ -426,7 +426,7 @@ cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/kernel-update
 	read -r -N 1 -p "Update to $KERNEL [y/n]?: " UPDATE
 	printf '\n'
 	if [[ $UPDATE == y ]]; then
-	   /usr/bin/dnf -y --repo='updates' update kernel-devel kernel
+	   /usr/bin/dnf -y --repo='updates' update kernel*
 	fi
 END
 chmod +x /usr/local/bin/kernel-update
