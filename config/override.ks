@@ -478,9 +478,10 @@ fi
 # cleanup
 dnf clean all &> /dev/null
 > /etc/resolv.conf
-if mountpoint -q /boot; then
-	umount -q /boot &> /dev/null
-fi
+# unmount the ESPs to be sure their file systems are flushed to disk
+for mp in /boot /boot@?; do
+	mountpoint -q "$mp" && umount "$mp" || :
+done
 if ! mountpoint -q /boot; then
 	(
 		shopt -s dotglob
