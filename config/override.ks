@@ -355,9 +355,6 @@ printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 # systemd-userdbd.service startup failure workaround
 mkdir -p /etc/systemd/system/systemd-userdbd.service.d
 cat <<- 'END' > /etc/systemd/system/systemd-userdbd.service.d/override.conf
-	[Unit]
-	After=systemd-user-sessions.service
-
 	# https://bugzilla.redhat.com/show_bug.cgi?id=2152376#c9
 	[Service]
 	IPAddressDeny=
