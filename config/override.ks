@@ -366,8 +366,12 @@ END
 # install supplemental scripts
 SRC_DIR='/var/tmp/supplements'
 if [[ -d $SRC_DIR ]]; then
-	install -v "$SRC_DIR"/* "/usr/local/bin"
-	rm -rf "$SRC_DIR"
+	cd "$SRC_DIR"
+	printf '%s\n' \
+		'Installing supplemental executables' \
+		'(feel free to remove these if you do not want them)'
+	install -v * "/usr/local/bin"
+	cd / && rm -rf "$SRC_DIR"
 	printf '\n'
 fi
 
