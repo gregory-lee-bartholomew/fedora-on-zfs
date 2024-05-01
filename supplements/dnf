@@ -1,0 +1,33 @@
+#!/usr/bin/bash
+
+UPDATE="0"
+FILTER=()
+
+for arg do
+	[[ ${arg:0:1} == - ]] && continue
+	case "$arg" in
+		(update|upgrade|up) UPDATE="1" ;;
+		(*) break ;;
+	esac
+done
+
+if [[ $UPDATE == 1 ]]; then
+	for arg do
+		if [[ $arg =~ ^zfs ]]; then
+			printf 'use `zfs-update` to update zfs.\n'
+			exit 1
+		fi
+
+		if [[ $arg =~ ^kernel ]]; then
+			printf 'use `kernel-update` to update the kernel.\n'
+			exit 1
+		fi
+	done
+
+	FILTER=('--exclude=kernel*')
+	if ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
+		FILTER+=('--disablerepo=zfs*')
+	fi
+fi
+
+/usr/bin/dnf "${FILTER[@]}" "$@"

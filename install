@@ -148,6 +148,37 @@ printf -- '%b' 'repo ' \
 	"--baseurl=${FREP%%*(/)}" \
 		"/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
 	> "$RV/fedora-kickstarts/fedora-repo.ks"
+printf '\n'
+
+# provide the installer with the conifguration files that will
+# be referenced by the scripts during the installation process
+cp -r config $RV
+
+# try to match the host's env so, e.g., <backspace> will work
+cat <<- END >> "$RV/config/evariables.conf"
+
+	TERM="$TERM"
+	LANG="$LANG"
+END
+
+# combine the provided kickstart and our scripts
+# to create the final kickstart (fedora-on-zfs.ks)
+. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
+cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
+%include /host/fedora-kickstarts/$KS
+%include /host/config/override.ks
+${BIOSBOOT:+%include /host/config/$BIOSBOOT}
+END
+
+# supplemental scripts to be added to /usr/local/bin
+cp -r "supplements" "$RV" || :
+
+# provide the installer with the scripts to support degraded boot
+# (if a drive fails, you should still be able to boot the system)
+[[ -e bootsync ]] || git clone \
+	'https://github.com/gregory-lee-bartholomew/bootsync.git'
+[[ -e bootsync ]] && cp -r bootsync "$RV"
+printf '\n'
 
 ENCRYPTION='off'
 if [[ $KS == fedora-disk-minimal.ks ]]; then
@@ -191,26 +222,6 @@ if [[ $KS == fedora-disk-minimal.ks ]] && [[ $RV -ge 38 ]]; then
 fi
 printf '\n'
 
-# provide the installer with the conifguration files that will
-# be referenced by the scripts during the installation process
-cp -r config $RV
-
-# try to match the host's env so, e.g., <backspace> will work
-cat <<- END >> "$RV/config/evariables.conf"
-
-	TERM="$TERM"
-	LANG="$LANG"
-END
-
-# combine the provided kickstart and our scripts
-# to create the final kickstart (fedora-on-zfs.ks)
-. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
-cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
-%include /host/fedora-kickstarts/$KS
-%include /host/config/override.ks
-${BIOSBOOT:+%include /host/config/$BIOSBOOT}
-END
-
 # make sure that at least two drives/files have been supplied
 COUNT=0
 declare -a FILE=()
@@ -242,13 +253,6 @@ for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
 		mv "$RV/.partial" "$RV/$BF"
 	fi
 done
-printf '\n'
-
-# provide the installer with the scripts to support degraded boot
-# (if a drive fails, you should still be able to boot the system)
-[[ -e bootsync ]] || git clone \
-	'https://github.com/gregory-lee-bartholomew/bootsync.git'
-[[ -e bootsync ]] && cp -r bootsync "$RV"
 printf '\n'
 
 # fetch the gpg rpms and extract the gpg keys

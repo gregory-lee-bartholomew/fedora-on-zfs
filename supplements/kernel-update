@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+
+shopt -s lastpipe
+
+/usr/bin/dnf --repo=updates --upgrades rq --nvr kernel | read KERNEL
+
+if [[ -z $KERNEL ]]; then
+	printf 'No kernel updates found, aborting ...\n'
+	exit 1
+fi
+
+rpm -q zfs | read ZFS
+
+cat <<- WARNING
+
+	Kernel update [1m$KERNEL[22m is available.
+	Your current version of OpenZFS is [1m$ZFS[22m.
+
+	Before proceeding, check \
+	[1mhttps://github.com/openzfs/zfs/releases[22m to verify that
+	your version of OpenZFS is compatible with this kernel update.
+
+WARNING
+read -r -N 1 -p "Update to $KERNEL [y/n]?: " UPDATE
+printf '\n'
+
+if [[ $UPDATE == y ]]; then
+	/usr/bin/dnf -y --repo=updates update kernel*
+fi

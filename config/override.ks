@@ -332,7 +332,7 @@ done
 	printf '\n'
 )
 
-for addon in bootsync homelock; do
+for addon in supplements bootsync homelock; do
 	if [[ -d /host/$addon ]]; then
 		cp -r "/host/$addon" "$ANACONDA_ROOT_PATH/var/tmp" || :
 	fi
@@ -366,70 +366,13 @@ cat <<- 'END' > /etc/systemd/system/systemd-userdbd.service.d/override.conf
 	ProtectHostname=no
 END
 
-# require that zfs and the linux kernel be updated separately and explicitly
-cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/dnf
-	#!/usr/bin/bash
-
-	if ! printf '%s\n' "$@" | grep -q '^\(update\|upgrade\|up\)$'; then
-	   /usr/bin/dnf "$@"
-	   exit $?
-	fi
-
-	if printf '%s\n' "$@" | grep -q '^zfs'; then
-	   printf 'use `zfs-update` to update zfs.\n'
-	   exit 1
-	fi
-
-	if printf '%s\n' "$@" | grep -q '^kernel'; then
-	   printf 'use `kernel-update` to update the kernel.\n'
-	   exit 1
-	fi
-
-	FILTER=('--exclude=kernel*')
-
-	if ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
-	   FILTER+=('--disablerepo=zfs*')
-	fi
-
-	/usr/bin/dnf "${FILTER[@]}" "$@"
-END
-chmod +x /usr/local/bin/dnf
-cat <<- 'END' > /usr/local/bin/zfs-update
-	#!/usr/bin/bash
-
-	/usr/bin/dnf --repo=zfs update
-END
-chmod +x /usr/local/bin/zfs-update
-cat <<- 'END' | sed 's/ \{3\}/\t/g' > /usr/local/bin/kernel-update
-	#!/usr/bin/bash
-
-	shopt -s lastpipe
-
-	/usr/bin/dnf --repo=updates --upgrades rq kernel --nvr | read KERNEL
-
-	if [[ -z $KERNEL ]]; then
-	   printf 'No kernel updates found, aborting ...\n'
-	   exit 1
-	fi
-
-	rpm -q zfs | read ZFS
-	cat << WARNING
-
-	Kernel update [1m$KERNEL[22m is available.
-	Your current version of OpenZFS is [1m$ZFS[22m.
-
-	Before proceeding, check \
-	[1mhttps://github.com/openzfs/zfs/releases[22m to verify that
-	your version of OpenZFS is compatible with this kernel update.
-
-	WARNING
-	read -r -N 1 -p "Update to $KERNEL [y/n]?: " UPDATE
+# install supplemental scripts
+SRC_DIR='/var/tmp/supplements'
+if [[ -d $SRC_DIR ]]; then
+	install -v "$SRC_DIR"/* "/usr/local/bin"
+	rm -rf "$SRC_DIR"
 	printf '\n'
-	if [[ $UPDATE == y ]]; then
-	   /usr/bin/dnf -y --repo='updates' update kernel*
-	fi
-END
-chmod +x /usr/local/bin/kernel-update
+fi
 
 # install the bootsync service to keep the ESPs sync'd
 SRC_DIR='/var/tmp/bootsync'
