@@ -105,11 +105,13 @@ set -- "${ARGV[@]}" "$@"
 if [[ $1 =~ ^[0-9]+$ ]]; then
 	RV="$1"; shift
 else
-	RV=$(($(
-		curl -sf \
-			'https://fedorapeople.org/groups/schedule/current-release.json' \
-		| grep -o '[0-9]*'
-	)-1))
+	RV=$(curl -sf "$(printf -- '%s' \
+		'https://gitlab.com/fedora/websites-apps/' \
+		'fedora-websites/cms/fedoraproject.org/-/' \
+		'raw/main/content/release.yml'
+	)" | awk \
+		'/releasever:/ { print $2-1; exit; }'
+	)
 fi
 
 if [[ $RV -le 0 ]]; then
