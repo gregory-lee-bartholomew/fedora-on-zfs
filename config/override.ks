@@ -210,7 +210,7 @@ printf 'root=zfs:root/0 quiet rhgb\n' \
 printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
 GRUB=$(rpm -qa | grep "^grubby-\|grub2-\|os-prober-")
 if [[ -n $GRUB ]]; then
-	rpm --nodeps -e $GRUB
+	rpm --nodeps -e $GRUB &> /dev/null
 fi
 printf 'exclude=grubby\n' >> /etc/dnf/dnf.conf
 if mountpoint -q /boot; then
