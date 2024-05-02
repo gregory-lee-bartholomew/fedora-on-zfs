@@ -352,17 +352,6 @@ exec &> /dev/ttyS0
 SELF='scripts/post/3.sh'
 printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 
-# systemd-userdbd.service startup failure workaround
-mkdir -p /etc/systemd/system/systemd-userdbd.service.d
-cat <<- 'END' > /etc/systemd/system/systemd-userdbd.service.d/override.conf
-	# https://bugzilla.redhat.com/show_bug.cgi?id=2152376#c9
-	[Service]
-	IPAddressDeny=
-	IPAddressAllow=any
-	RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
-	ProtectHostname=no
-END
-
 # install supplemental scripts
 SRC_DIR='/var/tmp/supplements'
 if [[ -d $SRC_DIR ]]; then
