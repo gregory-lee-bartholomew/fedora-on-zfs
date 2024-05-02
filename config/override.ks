@@ -196,7 +196,6 @@ rpm --nodeps --erase zfs-fuse &> /dev/null || :
 dnf install -q -y "/var/tmp/$ZKEY"
 dnf install -q -y --repo=fedora --repo=zfs kernel-devel zfs zfs-dracut
 printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
-printf '\n'
 
 # kexec-tools doesn't work well with systemd's bls specification
 ln -s /usr/bin/true /etc/kernel/install.d/92-crashkernel.install
@@ -222,7 +221,6 @@ fi
 )
 if [[ $RELEASEVER -ge 38 ]]; then
 	dnf install -q -y --repo=fedora systemd-boot-unsigned || :
-	printf '\n'
 fi
 if dnf install -q -y plymouth-theme-script; then
 	plymouth-set-default-theme script || :
