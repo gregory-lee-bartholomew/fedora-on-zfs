@@ -205,10 +205,7 @@ ln -s /usr/bin/true /etc/kernel/install.d/92-crashkernel.install
 # to be regenerated with the zfs drivers)
 TIMEOUT=10
 sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
-# you can remove the console=... parameters on your production system.
-# they are added here so that the `boot` test script can provide a
-# console directly in the terminal if it is run with `--text`.
-printf 'root=zfs:root/0 console=ttyS0,115200n8 console=tty1 quiet rhgb\n' \
+printf 'root=zfs:root/0 quiet rhgb\n' \
 	> /etc/kernel/cmdline
 printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
 GRUB=$(rpm -qa | grep "^grubby-\|grub2-\|os-prober-")
@@ -226,6 +223,9 @@ fi
 if [[ $RELEASEVER -ge 38 ]]; then
 	dnf install -q -y --repo=fedora systemd-boot-unsigned || :
 	printf '\n'
+fi
+if dnf install -q -y plymouth-theme-script; then
+	plymouth-set-default-theme script || :
 fi
 rm -f /etc/dkms/no-autoinstall
 rm -f /etc/dracut.conf.d/00-abort.conf
