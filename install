@@ -199,11 +199,13 @@ if [[ $KS == fedora-disk-minimal.ks ]]; then
 		sync.
 
 	END
-	prompt 'Enable encrypted home directories via homelock?'
+	prompt 'Enable encrypted home directories via [1mhomelock[22m?'
 	if [[ $ANSWER == y ]]; then
 		ENCRYPTION='on'
-		[[ -e homelock ]] || git clone \
-			'https://github.com/gregory-lee-bartholomew/homelock.git'
+		if ! [[ -e homelock ]]; then
+			printf '\n'
+			git clone 'https://github.com/gregory-lee-bartholomew/homelock.git'
+		fi
 		[[ -e homelock ]] && cp -r homelock "$RV"
 	fi
 fi
