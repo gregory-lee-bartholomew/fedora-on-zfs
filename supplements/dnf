@@ -36,10 +36,11 @@ if [[ $UPDATE == 1 ]]; then
 fi
 
 /usr/bin/dnf "${FILTER[@]}" "$@"
-if [[ $? -eq 0 ]] && [[ $NUMARG -eq 1 ]]; then
+if [[ $? -eq 0 ]] && [[ $NUMARG -eq 1 ]] && [[ -t 1 ]]; then
 	cat <<- 'END'
 
-		kernel updates were excluded
+		zfs and kernel updates were excluded
+		run `zfs-update` to update zfs
 		run `kernel-update` to update the kernel
 
 	END
