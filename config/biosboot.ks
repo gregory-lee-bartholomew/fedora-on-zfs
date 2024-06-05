@@ -109,6 +109,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 		close FH;
 	FIM
 
+	rpm -q --quiet gdisk || dnf install -q -y gdisk
 	BINS="/usr/share/syslinux"
 	for disk in /dev/vd[a-z]; do
 		part="${disk}1"
