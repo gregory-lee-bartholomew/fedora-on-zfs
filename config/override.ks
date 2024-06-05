@@ -204,7 +204,7 @@ ln -s /usr/bin/true /etc/kernel/install.d/92-crashkernel.install
 # to be regenerated with the zfs drivers)
 TIMEOUT=10
 sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
-printf 'root=zfs:root/0 quiet rhgb\n' \
+printf 'root=zfs:root/0 %s\n' "$CMDLINE" \
 	> /etc/kernel/cmdline
 printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
 GRUB=$(rpm -qa | grep "^grubby-\|grub2-\|os-prober-")
