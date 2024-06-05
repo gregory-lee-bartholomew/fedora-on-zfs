@@ -113,7 +113,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 	for disk in /dev/vd[a-z]; do
 		part="${disk}1"
 		base="/boot@${disk: -1}"
-		mountpoint "$base"
+		mountpoint -q "$base" || mount "$base"
 		mkdir -p "$base/syslinux"
 		umount "$base"
 		dd bs=440 count=1 conv=notrunc,sync if="$BINS/gptmbr.bin" of="$disk"
