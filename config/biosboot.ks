@@ -126,9 +126,33 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 		cat <<- END > "$base/syslinux.cfg"
 			default BLS001
 			timeout 1200
-			ui menu.c32
-			menu title FEDORA LINUX
+			ui vesamenu.c32
+			menu include syslinux-theme.cfg
 			bls1 include
+		END
+		cat <<- END > "$base/syslinux-theme.cfg"
+			menu title FEDORA LINUX
+			menu background #ff000000
+
+			menu color screen	0 #ff808080 #ff000000 none
+			menu color border	30;40 #ff000000 #ff000000 none
+			menu color title	0 #ff808080 #ff000000 none
+			menu color unsel	0 #ff808080 #ff000000 none
+			menu color hotkey	0 #ff808080 #ff000000 none
+			menu color sel		7 #ffffffff #ff000000 none
+			menu color hotsel	0 #ff808080 #ff000000 none
+			menu color disabled	0 #ff808080 #ff000000 none
+			menu color scrollbar	0 #ff808080 #ff000000 none
+			menu color tabmsg	0 #ff808080 #ff000000 none
+			menu color cmdmark	0 #ff808080 #ff000000 none
+			menu color cmdline	0 #ff808080 #ff000000 none
+			menu color pwdborder	30;40 #ff000000 #ff000000 none
+			menu color pwdheader	0 #ff808080 #ff000000 none
+			menu color pwdentry	0 #ff808080 #ff000000 none
+			menu color timeout_msg	0 #ff808080 #ff000000 none
+			menu color timeout	0 #ff808080 #ff000000 none
+			menu color help		0 #ff808080 #ff000000 none
+			menu color msg07	0 #ff808080 #ff000000 none
 		END
 		printf '\n'
 	done
