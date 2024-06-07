@@ -223,7 +223,12 @@ if [[ $RELEASEVER -ge 38 ]]; then
 	dnf install -q -y --repo=fedora systemd-boot-unsigned || :
 fi
 if dnf install -q -y plymouth-theme-script; then
-	plymouth-set-default-theme script || :
+	if [[ -n $BIOSBOOT ]]; then
+		# default to non-graphical boot on older BIOS systems
+		plymouth-set-default-theme details || :
+	else
+		plymouth-set-default-theme script || :
+	fi
 fi
 rm -f /etc/dkms/no-autoinstall
 rm -f /etc/dracut.conf.d/00-abort.conf
