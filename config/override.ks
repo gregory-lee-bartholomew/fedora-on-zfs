@@ -399,6 +399,12 @@ if [[ $ADD_SWAYWM == yes ]]; then
 		      )
 		   fi
 
+		   # uncomment the following if you need to enable software rendering
+		   # (e.g. might be needed for an old server with limited graphics HW)
+		   # export WLR_RENDERER='pixman'
+		   # export WLR_RENDERER_ALLOW_SOFTWARE='1'
+		   # export LIBGL_ALWAYS_SOFTWARE='true'
+
 		   printf 'launching sway ...\n'
 		   exec 0<&- &> /dev/null
 		   exec "${SSH_AGENT[@]}" /usr/bin/sway
