@@ -136,10 +136,10 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 
 			menu color screen	0 #ff808080 #ff000000 none
 			menu color border	30;40 #ff000000 #ff000000 none
-			menu color title	0 #ff808080 #ff000000 none
+			menu color title	1 #ffffffff #ff000000 none
 			menu color unsel	0 #ff808080 #ff000000 none
 			menu color hotkey	0 #ff808080 #ff000000 none
-			menu color sel		7 #ffffffff #ff000000 none
+			menu color sel		1 #ffffffff #ff000000 none
 			menu color hotsel	0 #ff808080 #ff000000 none
 			menu color disabled	0 #ff808080 #ff000000 none
 			menu color scrollbar	0 #ff808080 #ff000000 none
@@ -150,7 +150,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 			menu color pwdheader	0 #ff808080 #ff000000 none
 			menu color pwdentry	0 #ff808080 #ff000000 none
 			menu color timeout_msg	0 #ff808080 #ff000000 none
-			menu color timeout	0 #ff808080 #ff000000 none
+			menu color timeout	1 #ffffffff #ff000000 none
 			menu color help		0 #ff808080 #ff000000 none
 			menu color msg07	0 #ff808080 #ff000000 none
 		END
