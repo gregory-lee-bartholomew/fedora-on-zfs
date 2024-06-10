@@ -70,13 +70,13 @@ printf 'initializing zfs file systems ...\n\n'
 
 zpool create -f -m none -R "$ANACONDA_ROOT_PATH" \
 	$(grep -i '^-o ' /host/config/properties.conf) \
-	root mirror /dev/disk/by-partlabel/root@[a-z]
+	"${ZFSROOT%%/*}" mirror /dev/disk/by-partlabel/root@[a-z]
 
 zpool list -LvP -o name,size,allocated,free,checkpoint,\
 expandsize,fragmentation,capacity,dedupratio,health
 printf '\n'
 
-zfs create -o mountpoint=/ root/0
+zfs create -o mountpoint=/ "$ZFSROOT"
 (
 	IFS=$'\n'
 	for mp in $(</host/config/filesystems.conf); do
@@ -88,7 +88,7 @@ zfs create -o mountpoint=/ root/0
 		[[ $mp == /* ]] || continue
 		options+=(-o mountpoint="$mp")
 		fs="${mp:1}"
-		zfs create "${options[@]}" "root/${fs//\//-}"
+		zfs create "${options[@]}" "${ZFSROOT%%/*}/${fs//\//-}"
 	done
 )
 
@@ -104,7 +104,7 @@ mountpoint -q "$ANACONDA_ROOT_PATH" || exit
 )
 trap - exit
 
-zfs list -r root | sed "s# $ANACONDA_ROOT_PATH/\?# /#;"
+zfs list -r "${ZFSROOT%%/*}" | sed "s# $ANACONDA_ROOT_PATH/\?# /#;"
 printf '\n'
 
 printf 'zfs file systems initialized\n\n'
@@ -204,7 +204,7 @@ ln -s /usr/bin/true /etc/kernel/install.d/92-crashkernel.install
 # to be regenerated with the zfs drivers)
 TIMEOUT=10
 sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
-printf 'root=zfs:root/0 %s\n' "$CMDLINE" \
+printf 'root=zfs:%s %s\n' "$ZFSROOT" "$CMDLINE" \
 	> /etc/kernel/cmdline
 printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
 GRUB=$(rpm -qa | grep "^grubby-\|grub2-\|os-prober-")
@@ -500,8 +500,9 @@ function _useradd {
 					);
 				}
 				push @OPTS, qq(-o mountpoint=/home/$ENV{'USERNAME'});
+				my $filesystem = $ENV{'ZFSROOT'} =~ s{/.*}{/$ENV{'USERNAME'}}r;
 				open P2, '|-',
-					qq(zfs create @OPTS root/$ENV{'USERNAME'})
+					qq(zfs create @OPTS $filesystem)
 				|| die;
 				if ($ENV{'ENCRYPTION'} eq 'on') {
 					print P2 $pw;
