@@ -168,6 +168,7 @@ cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
 %include /host/fedora-kickstarts/$KS
 %include /host/config/override.ks
 ${BIOSBOOT:+%include /host/config/$BIOSBOOT}
+%include /host/config/lastcall.ks
 END
 
 # supplemental scripts to be added to /usr/local/bin
