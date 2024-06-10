@@ -154,6 +154,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 			menu color help		0 #ff808080 #ff000000 none
 			menu color msg07	0 #ff808080 #ff000000 none
 		END
+		umount "$base"
 		printf '\n'
 	done
 
