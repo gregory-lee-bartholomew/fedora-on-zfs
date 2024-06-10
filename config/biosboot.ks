@@ -125,7 +125,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 			"$base/syslinux"
 		cat <<- END > "$base/syslinux.cfg"
 			default BLS001
-			timeout 1200
+			timeout 50
 			ui vesamenu.c32
 			menu include syslinux-theme.cfg
 			bls1 include
