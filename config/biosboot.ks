@@ -163,7 +163,9 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 
 	# bootbind.service doesn't work with bios booting
 	systemctl disable bootbind.service &> /dev/null
-	printf '/boot@a /boot none bind,nofail 0 0\n' >> /etc/fstab
+	cat <<- 'END' >> /etc/fstab
+		/boot@a /boot none bind,x-systemd.before=bootsync.service,nofail 0 0
+	END
 else
 	cat <<- END
 		sorry, the custom syslinux-nonlinux package (+BLS) failed to compile.
