@@ -197,9 +197,6 @@ dnf install -q -y "/var/tmp/$ZKEY"
 dnf install -q -y --repo=fedora --repo=zfs kernel-devel zfs zfs-dracut
 printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 
-# kexec-tools doesn't work well with systemd's bls specification
-ln -s /usr/bin/true /etc/kernel/install.d/92-crashkernel.install
-
 # systemd-boot stuff (also removes grub and causes the initramfs 
 # to be regenerated with the zfs drivers)
 TIMEOUT=10
@@ -207,11 +204,10 @@ sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
 printf 'root=zfs:%s %s\n' "$ZFSROOT" "$CMDLINE" \
 	> /etc/kernel/cmdline
 printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
-GRUB=$(rpm -qa | grep "^grubby-\|grub2-\|os-prober-")
+GRUB=$(rpm -qa | grep "grub2-\|os-prober-")
 if [[ -n $GRUB ]]; then
 	rpm --nodeps -e $GRUB &> /dev/null
 fi
-printf 'exclude=grubby\n' >> /etc/dnf/dnf.conf
 if mountpoint -q /boot; then
 	umount -q /boot
 fi
