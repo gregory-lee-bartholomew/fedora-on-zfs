@@ -380,7 +380,7 @@ SRC_DIR='/var/tmp/homelock'
 if [[ -d $SRC_DIR ]]; then
 	cd "$SRC_DIR"
 	dnf install -q -y --repo=fedora selinux-policy-devel
-	make install
+	make install "pool=${ZFSROOT%%/*}"
 	make sepolicy_install &> /dev/null
 	sed -i '/^USERS=/ { s/=.*/=()/; }' /etc/security/homelock.conf
 	cd / && rm -rf "$SRC_DIR"
