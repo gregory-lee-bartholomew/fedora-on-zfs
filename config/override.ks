@@ -414,21 +414,6 @@ if [[ $ADD_SWAYWM == yes ]]; then
 	END
 fi
 
-# cleanup
-dnf clean all &> /dev/null
-> /etc/resolv.conf
-# unmount the ESPs to be sure their file systems are flushed to disk
-for mp in /boot /boot@?; do
-	mountpoint -q "$mp" && umount "$mp" || :
-done
-if ! mountpoint -q /boot; then
-	(
-		shopt -s dotglob
-		rm -rf /boot/*
-	)
-fi
-printf '\n'
-
 systemctl disable initial-setup.service &> /dev/null
 
 printf "\n\e[0;97;7m finished $SELF \e[0m\n\n"
