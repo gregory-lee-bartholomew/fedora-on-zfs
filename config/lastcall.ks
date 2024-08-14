@@ -14,6 +14,9 @@ printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 set -e
 trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 
+# make systemd happy
+timedatectl set-local-rtc 0
+
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
 read -r -n 1 -p \
