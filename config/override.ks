@@ -131,6 +131,7 @@ for file in \
 do
 	mkdir -p "${file%/*}"
 	cat <<- 'END' > "${file}"
+		#!/bin/sh
 		# temporarily disable initramfs generation to save time during pkg inst
 		# (this file should have been removed by the anaconda post-run scripts)
 		exit 77
