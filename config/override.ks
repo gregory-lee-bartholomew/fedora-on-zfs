@@ -219,7 +219,7 @@ fi
 if [[ $RELEASEVER -ge 38 ]]; then
 	dnf install -q -y --repo=fedora systemd-boot-unsigned || :
 fi
-if dnf install -q -y plymouth-theme-script; then
+if dnf install -q -y --repo=fedora plymouth-theme-script; then
 	if [[ -n $BIOSBOOT ]]; then
 		# default to non-graphical boot on older BIOS systems
 		plymouth-set-default-theme details || :
