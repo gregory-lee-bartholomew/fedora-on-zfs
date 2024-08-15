@@ -18,7 +18,7 @@ trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 mount -a
 
 # make systemd happy
-timedatectl set-local-rtc 0
+hwclock -w -u
 
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
