@@ -34,7 +34,9 @@ DNF=(dnf -y
 BUILDROOT="$PWD/syslinux-buildroot"
 mkdir -p "$BUILDROOT"
 DNF+=(--installroot="$BUILDROOT")
-"${DNF[@]}" builddep syslinux-*.src.rpm
+rpm2cpio syslinux-*.src.rpm | cpio -i -u --quiet syslinux.spec
+sed -i 's!^BuildRequires: .*/stubs-32.h!#&!' syslinux.spec
+"${DNF[@]}" builddep syslinux.spec
 "${DNF[@]}" install 'make' 'gcc' 'mingw32-gcc' 'rpmdevtools'
 for i in biosboot-patches syslinux-*.src.rpm; do
 	mv "$i" "$BUILDROOT/root"
