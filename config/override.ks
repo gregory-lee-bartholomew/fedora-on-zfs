@@ -578,6 +578,7 @@ function _useradd {
 }
 
 # ask to set root's password
+printf "setting root's password ...\n"
 while ! chroot "$ANACONDA_ROOT_PATH" /usr/bin/passwd root; do
 	printf "failed to set root's password, retrying ...\n\n"
 done
