@@ -198,20 +198,17 @@ dnf install -q -y "/var/tmp/$ZKEY"
 dnf install -q -y --repo=fedora --repo=zfs kernel-devel zfs zfs-dracut
 printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 
-# systemd-boot stuff (also removes grub and causes the initramfs 
-# to be regenerated with the zfs drivers)
+# install systemd-boot
+# (also causes the initramfs to be regenerated with the zfs drivers)
 TIMEOUT=10
-sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
 printf 'root=zfs:%s %s\n' "$ZFSROOT" "$CMDLINE" \
 	> /etc/kernel/cmdline
-printf 'hostonly="no"\n' > /etc/dracut.conf.d/hostonly.conf
-GRUB=$(rpm -qa | grep "grub2-\|os-prober-")
-if [[ -n $GRUB ]]; then
-	rpm --nodeps -e $GRUB &> /dev/null
-fi
+printf 'hostonly="no"\n' \
+	> /etc/dracut.conf.d/hostonly.conf
 if mountpoint -q /boot; then
 	umount -q /boot
 fi
+sed -i '\#^\s*/boot\b# d' /etc/fstab &> /dev/null || :
 (
 	shopt -s dotglob
 	rm -rf /boot/*
