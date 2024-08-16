@@ -30,6 +30,7 @@ function usage {
 
 function prompt {
 	ANSWER=''
+	read -e -t 0.125 || :
 	while ! [[ $ANSWER =~ ^[yn]$ ]]; do
 		printf "$1 [y/n]: "
 		read -r -n 1 ANSWER
