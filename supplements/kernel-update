@@ -2,7 +2,10 @@
 
 shopt -s lastpipe
 
-/usr/bin/dnf --repo=updates --upgrades rq --nvr kernel | read KERNEL
+[[ $* =~ --refresh ]]
+
+/usr/bin/dnf --repo=updates --upgrades rq --nvr kernel "${BASH_REMATCH[0]}" \
+	| read KERNEL
 
 if [[ -z $KERNEL ]]; then
 	printf 'No kernel updates found, aborting ...\n'
