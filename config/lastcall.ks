@@ -38,6 +38,9 @@ if [[ $ANSWER == y ]]; then
 		--exclude=kernel* \
 		--exclude=audit --exclude=audit-libs \
 		distro-sync
+	/usr/bin/dnf -q -y \
+		install rpmconf
+	rpmconf -a -u use_maintainer
 fi
 
 # cleanup
