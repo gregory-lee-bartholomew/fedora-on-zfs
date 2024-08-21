@@ -32,11 +32,13 @@ hwclock -w -u
 read -r -n 1 -p \
 	'install the latest package updates (recommended)? [y/n]: ' ANSWER
 printf '\n'
-[[ $ANSWER == y ]] && /usr/bin/dnf -y \
-	--disablerepo=zfs* \
-	--exclude=kernel* \
-	--exclude=audit --exclude=audit-libs \
-	update || :
+if [[ $ANSWER == y ]]; then
+	/usr/bin/dnf -y \
+		--disablerepo=zfs* \
+		--exclude=kernel* \
+		--exclude=audit --exclude=audit-libs \
+		distro-sync
+fi
 
 # cleanup
 dnf clean all &> /dev/null
