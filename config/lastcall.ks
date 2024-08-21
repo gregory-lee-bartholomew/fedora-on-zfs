@@ -11,6 +11,10 @@ stty sane
 SELF='scripts/post/9.sh'
 printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 
+# prevent ctrl-c from showing "^C" and killing this script
+# (the interrupt should still hit the child process, however)
+trap 'printf "\e[2D\e[0K"' int
+
 trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 
 # make sure all the filesystems are mounted
