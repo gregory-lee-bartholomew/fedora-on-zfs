@@ -17,6 +17,10 @@ trap 'printf "\e[2D\e[0K"' int
 
 trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 
+# report success to anaconda from here on out,
+# regardless of what happens
+trap 'exit 0' exit
+
 # make sure all the filesystems are mounted
 mount -a
 
