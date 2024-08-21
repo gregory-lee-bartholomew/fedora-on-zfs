@@ -24,9 +24,6 @@ trap 'exit 0' exit
 # make sure all the filesystems are mounted
 mount -a
 
-# make systemd happy
-hwclock -w -u
-
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
 read -r -n 1 -p \

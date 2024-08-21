@@ -185,6 +185,9 @@ shopt -s extglob
 
 export MACHINE_ID="$(</etc/machine-id)"
 
+# make systemd happy
+hwclock -w -u || :
+
 # remove random seed, the newly-\
 # installed instance should make its own
 rm -f /var/lib/systemd/random-seed
