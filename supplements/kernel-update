@@ -2,7 +2,7 @@
 
 shopt -s lastpipe
 
-[[ $* =~ --refresh ]]
+for arg; do [[ $arg =~ ^--refresh$ ]] && break; done
 
 /usr/bin/dnf --repo=updates --upgrades rq --nvr kernel "${BASH_REMATCH[0]}" \
 	| read KERNEL
