@@ -1,0 +1,63 @@
+#!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+shopt -s lastpipe
+
+trap \
+	'printf "an error has occurred on line ${LINENO} of ${0##*/}\n" 1>&2' \
+err
+
+uname -m | read ARCH
+
+declare -A PREREQS=(
+	/usr/bin/git git-core
+	/usr/bin/curl curl
+	/usr/bin/awk gawk
+	/usr/bin/sed sed
+	/usr/bin/cpio cpio
+	/usr/bin/gpg gnupg2
+	/usr/bin/ssh-keygen openssh
+	/usr/share/edk2/ovmf edk2-ovmf
+	"/usr/bin/qemu-system-$ARCH" "qemu-system-${ARCH%%_*}-core"
+)
+
+function prompt {
+	ANSWER=''
+	read -e -t 0.125 &> /dev/null || :
+	while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+		printf "$1 [y/n]: "
+		read -r -n 1 ANSWER
+		[[ $ANSWER == '' ]] || printf '\n'
+	done
+}
+
+for prereq in "${!PREREQS[@]}"; do
+	if [[ -e $prereq ]]; then
+		unset "PREREQS[$prereq]"
+		continue
+	fi
+
+	prompt "${prereq##*/} not found. Install ${PREREQS[$prereq]}?"
+	if [[ $ANSWER == y ]]; then
+		dnf install -qy "${PREREQS[$prereq]}" && unset "PREREQS[$prereq]"
+	fi
+done
+
+case "${#PREREQS[*]}" in
+	(0)
+		STATUS='positive'
+		printf 'All dependencies have been satisfied.\n'
+	;;
+	(*)
+		STATUS='negative'
+		printf 'Some dependencies are not satisfied.\n'
+	;;
+esac
+
+cat <<- END
+
+	If you believe the above statement is a false $STATUS,
+	you can report the problem at https://github.com
+	/gregory-lee-bartholomew/fedora-on-zfs.git/issues.
+
+END

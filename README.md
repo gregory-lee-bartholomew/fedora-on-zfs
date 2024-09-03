@@ -17,6 +17,7 @@ The following commands, if run from a Fedora Linux live image, will download thi
     $ sudo -i
     # git clone https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git
     # cd fedora-on-zfs
+    # ./prereqs
     # ./install fedora-disk-minimal.ks /dev/sdX /dev/sdY
 
 The script will fetch a fresh copy of the Fedora kickstarts from https://pagure.io/fedora-kickstarts/ if the fedora-kickstarts repo has not already been cloned. Other fedora-disk-\*.ks kickstart scripts should also work, but they will take longer to complete. An alternative to using the default Fedora Workstation/KDE/etc kickstarts would be to first get your root on ZFS Fedora Linux install working with the minimal kickstart and then use a command like `sudo dnf group install "Fedora Workstation"` to upgrade it to one of the larger desktop enviornments.
