@@ -17,12 +17,16 @@ if [[ $UPDATE == 1 ]]; then
 		[[ ${arg:0:1} == - ]] && continue
 
 		if [[ $arg =~ ^zfs ]]; then
-			printf 'use `zfs-update` to update zfs.\n'
+			printf -- '%b' \
+				'use [1mzfs-update[22m ' \
+				'to update zfs.\n'
 			exit 1
 		fi
 
 		if [[ $arg =~ ^kernel ]]; then
-			printf 'use `kernel-update` to update the kernel.\n'
+			printf -- '%b' \
+				'use [1mkernel-update[22m ' \
+				'to update the kernel.\n'
 			exit 1
 		fi
 
@@ -40,8 +44,8 @@ if [[ $? -eq 0 ]] && [[ $NUMARG -eq 1 ]] && [[ -t 1 ]]; then
 	cat <<- 'END'
 
 		zfs and kernel updates were excluded
-		run `zfs-update` to update zfs
-		run `kernel-update` to update the kernel
+		run [1mzfs-update[22m to update zfs
+		run [1mkernel-update[22m to update the kernel
 
 	END
 fi

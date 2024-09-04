@@ -14,14 +14,14 @@ fi
 
 rpm -q zfs | read ZFS
 
-cat <<- WARNING
+tr -d '\t' <<- WARNING
 
-Kernel update [1m$KERNEL[22m is available.
-Your current version of OpenZFS is [1m$ZFS[22m.
+	Kernel update [1m$KERNEL[22m is available.
+	Your current version of OpenZFS is [1m$ZFS[22m.
 
-Before proceeding, check \
-[1mhttps://github.com/openzfs/zfs/releases[22m to verify that
-your version of OpenZFS is compatible with this kernel update.
+	Before proceeding, check \
+	[1mhttps://github.com/openzfs/zfs/releases[22m to verify that
+	your version of OpenZFS is compatible with this kernel update.
 
 WARNING
 read -r -N 1 -p "Update to $KERNEL [y/n]?: " UPDATE
