@@ -17,14 +17,17 @@ uname -m | read ARCH
 . <(tac config/evariables.conf | grep -m 1 '^ZREP=')
 
 function warn {
-	printf "$*\n" 1>&2
+	local IFS=''; printf -- "warning: $*\n" 1>&2;
+}
+
+function fail {
+	local IFS=''; printf -- "error: $*\n" 1>&2;
+	exit 1
 }
 
 function usage {
-	warn usage: ./${0##*/} \[qemu options\] \
-		\[release\] \<kickstart\> \<drive1\> \<drive2\> \[...\]
-	printf '\n'
-
+	printf -- '%b' "usage: ./${0##*/} [qemu options] [release] <kickstart>" \
+		" <drive1> <drive2> [<driveN> ...]\n" 1>&2
 	exit 1
 }
 
@@ -41,17 +44,19 @@ function prompt {
 # used internally to dump files to anaconda (via curl)
 # IMPORTANT: this must be the first to generate stdout
 if [[ $1 == '---' ]]; then
-	CAFE=$(sed -n '1 {s/^GET \(\S*\).*$/\1/;p;q;}')
-	if [[ -e "${CAFE#/}" ]]; then
-		printf '%s\n' \
-			'HTTP/1.0 200 OK' \
-			'Content-Type: application/octet-stream' \
-			''
-		exec cat "${CAFE#/}"
+	sed -n '1 {s!^GET /*\(\S*\).*$!\1!;p;q;}' | read CAFE
+	if [[ -r $CAFE ]]; then
+		cat <<- END
+			HTTP/1.0 200 OK
+			Content-Type: application/octet-stream
+
+		END
+		exec cat "$CAFE"
 	else
-		printf '%s\n' \
-			"HTTP/1.0 418 I'm a teapot" \
-			''
+		cat <<- END
+			HTTP/1.0 418 I'm a teapot
+
+		END
 		exit
 	fi
 fi
@@ -82,7 +87,7 @@ declare -A QEMU=(
 grep -q '\bvmx\|svm\b' /proc/cpuinfo && QEMU['-accel']='kvm'
 
 # filter qemu options (anything beginning with '-' is passed on to qemu)
-ARGC=0
+declare -a ARGV=()
 while (( $# > 0 )) && [[ $1 != -- ]]; do
 	if [[ ${1:0:1} == - ]]; then
 		if [[ $1 == *=* ]]; then
@@ -93,8 +98,7 @@ while (( $# > 0 )) && [[ $1 != -- ]]; do
 			shift 2
 		fi
 	else
-		ARGV[$ARGC]="$1"
-		ARGC=$(($ARGC+1))
+		ARGV+=("$1")
 		shift 1
 	fi
 done
@@ -116,25 +120,23 @@ else
 fi
 
 if [[ $RV -le 0 ]]; then
-	warn 'error: failed to determine the current fedora release'
-	warn 'you can specify a release to install manually by pro-'
-	warn 'viding a number as the first argument to this script.'
-	exit 1
+	fail \
+		'failed to determine the current fedora release\n' \
+		'you can specify a release to install manually by pro-\n' \
+		'viding a number as the first argument to this script.\n'
 fi
 
 # pre-process the kickstarts
 KS="${1#fedora-kickstarts/}"; shift || usage
 if ! [[ $KS =~ ^fedora-disk- ]]; then
-	warn 'error: this script only works with fedora-disk-* kickstart scripts'
-	exit 1
+	fail 'this script only works with fedora-disk-* kickstart scripts\n'
 fi
 if ! [[ -e fedora-kickstarts ]]; then
 	git clone 'https://pagure.io/fedora-kickstarts.git'
 fi
 (cd fedora-kickstarts && git checkout "f$RV") || exit 1
 if ! [[ -f fedora-kickstarts/$KS ]]; then
-	warn "error: kickstart file 'fedora-kickstarts/$KS' not found"
-	exit 1
+	fail "kickstart file 'fedora-kickstarts/$KS' not found\n"
 fi
 rm -rf "$RV/fedora-kickstarts"
 for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
@@ -142,7 +144,9 @@ for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
 	sed "
 		s#^\(%include\) \(.*\)#\1 /host/${ks%/*}/\2#;
 		s#^\(%packages\)#\1 --ignoremissing#;
-	" $ks | grep -v '^autopart\b' > $RV/$ks
+	" $ks | grep -v \
+		-e '^autopart\b' \
+	> "$RV/$ks"
 done
 printf -- '%b' 'repo ' \
 	'--name=fedora ' \
@@ -153,7 +157,7 @@ printf '\n'
 
 # provide the installer with the conifguration files that will
 # be referenced by the scripts during the installation process
-cp -r config $RV
+cp -r config "$RV"
 
 # try to match the host's env so, e.g., <backspace> will work
 cat <<- END >> "$RV/config/evariables.conf"
@@ -227,22 +231,17 @@ fi
 printf '\n'
 
 # make sure that at least two drives/files have been supplied
-COUNT=0
 declare -a FILE=()
 while [[ -n $1 ]]; do
 	if ! [[ -e $1 ]]; then
-		warn "error: '$1' not found"
-		exit 1
+		fail "'$1' not found\n"
 	fi
 
-	FILE[$COUNT]="$1"
-	COUNT=$(($COUNT+1))
-
+	FILE+=("$1")
 	shift
 done
-if [[ $COUNT -lt 2 ]]; then
-	warn 'error: you must supply at least two drives'
-	exit 1
+if [[ ${#FILE[*]} -lt 2 ]]; then
+	fail 'you must supply at least two drives\n'
 fi
 
 # fetch the anaconda boot files
@@ -283,23 +282,21 @@ eval ${PREVIOUS_ERR_TRAP:-trap - err}
 if [[ $ZREP =~ zfsonlinux.github.com/?$ ]]; then
 	ZREP="${ZREP%%*(/)}/raw/master/fedora"
 fi
-RPMS=(
-"${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os"\
-"/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm"
-"${ZREP%%*(/)}/$ZKEY"
-)
+declare -a RPMS=()
+RPMS+=("${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os\
+/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm")
+RPMS+=("${ZREP%%*(/)}/$ZKEY")
 TEMPDIR=$(mktemp -d)
 KEYSDIR='updates/etc/pki/rpm-gpg'
 which curl rpm2cpio cpio 1>/dev/null
-for rpm in ${RPMS[*]}; do
+for rpm in "${RPMS[@]}"; do
 	printf "downloading $rpm ...\n"
 	if ! curl -s -L "$rpm" \
 		| tee "$RV/${rpm##*/}" \
 		| rpm2cpio \
 		| cpio -i -u -d --quiet --directory="$TEMPDIR" "./etc/pki/rpm-gpg/*"
 	then
-		warn 'error: bad link. are $FREP and $ZREP correct?'
-		exit 1
+		fail 'bad link. are $FREP and $ZREP correct?\n'
 	fi
 done
 printf '\n'
@@ -330,7 +327,7 @@ printf '\n'
 # from changing between one run and the next (2222)
 if ! [[ -e updates/etc/ssh ]]; then
 	mkdir -p 'updates/etc/ssh'
-	ssh-keygen -A -f 'updates'
+	ssh-keygen -A -f 'updates' || :
 	printf '\n'
 fi
 
@@ -341,9 +338,8 @@ fi
 mkdir -p "$RV/efi"
 for fd in OVMF_{CODE,VARS}.fd; do
 	if ! cp "/usr/share/edk2/ovmf/$fd" "$RV/efi" &>/dev/null; then
-		warn "error: failed to make a local copy of '$fd'"
-		warn 'you may need to install the edk2-ovmf package'
-		exit 1
+		fail "failed to make a local copy of '$fd'\n" \
+			'you may need to install the edk2-ovmf package\n'
 	fi
 done
 
@@ -356,12 +352,11 @@ done
 printf '\n'
 
 # give the user one last chance to abort
-printf "warning: this will erase all data from: \e[1;31m${FILE[*]}\e[22;39m\n"
+printf "warning, this will erase all data from: \e[1;31m${FILE[*]}\e[22;39m\n"
 prompt 'are you sure you want to continue?'
 if [[ $ANSWER == y ]]; then
 	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
-		warn "$STATUS"
-		exit 1
+		fail "$STATUS\n"
 	fi
 else
 	exit 1
@@ -369,14 +364,14 @@ fi
 
 . <(tac config/evariables.conf | grep -m 1 '^SSHPORT=')
 
-cat << END
+cat <<- END
 
-launching the anaconda installer...
+	launching the anaconda installer...
 
-you can press [1mctrl-a x[22m at any time to kill the installer
-or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer
+	you can press [1mctrl-a x[22m at any time to kill the installer
+	or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer
 
-you can get some coffee now ... this will take a while
+	you can get some coffee now ... this will take a while
 
 END
 
@@ -443,9 +438,9 @@ fi
 rm -rf efi
 mv "$RV/efi" efi
 
-cat << END
+cat <<- END
 
-The UEFI firmware images needed to boot the installed
-system with QEMU have been saved under the [1mefi[22m directory.
+	The UEFI firmware images needed to boot the installed
+	system with QEMU have been saved under the [1mefi[22m directory.
 
 END
