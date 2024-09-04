@@ -12,7 +12,7 @@ See [YouTube: OpenZFS Basics](https://www.youtube.com/watch?v=MsY-BafQgj4) if yo
 
 # Installation
 
-The following commands, if run from a Fedora Linux live image, will download this script and use it to install a minimal Fedora Linux OS with a mirrored-disk configuration on /dev/sdX and /dev/sdY. All existing data on /dev/sdX and /dev/sdY will be erased.
+The following commands, if run from a Fedora Linux live image, will download this script and use it to install a minimal Fedora Linux OS with a mirrored-disk configuration on /dev/sdX and /dev/sdY. All existing data on /dev/sdX and /dev/sdY will be erased. You might need to install the `git-core` package if the git command is unavailable. **TIP**: Try running `lsblk -o +model` if you are unsure what device paths correspond to the disks on which you want to install Fedora Linux.
 
     $ sudo -i
     # git clone https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git
