@@ -46,11 +46,11 @@ done
 case "${#PREREQS[*]}" in
 	(0)
 		STATUS='positive'
-		printf 'All dependencies have been satisfied.\n'
+		printf '\nAll dependencies have been satisfied.\n'
 	;;
 	(*)
 		STATUS='negative'
-		printf 'Some dependencies are not satisfied.\n'
+		printf '\nSome dependencies are not satisfied.\n'
 	;;
 esac
 
