@@ -36,6 +36,8 @@ This script will also configure the installed system to *exclude* ZFS and the Li
 
 **Note**: Due to the nature of how the Fedora Linux live images work, and because this script uses QEMU to run *another* instance of the Fedora Linux OS, this script requires a great deal of RAM to run to completion. If your system does not have sufficiant RAM for this script, you can work around the problem by attaching an extra USB drive and using it to create extra "virtual" (swap) memory. Use `mkswap --force --label swap /dev/sdZ` to format the USB device as swap memory. Then reboot the Fedora Linux live image and add the kernel parameter `systemd.swap-extra=/dev/disk/by-label/swap` to activate it. (You might want to add `3` to the list of kernel parameters while you are at it to avoid loading the full graphical environment. Recent Fedora Linux live images will let you sign in with `root` and a blank password.) The additional memory should be visible in the output of the `free -m` command. (**Warning**: Adding swap memory as a workaround for insufficient RAM will make the installation *very* slow!)
 
+**Note**: Network connectivity problems have been reported when attempting to run this script from within VirtualBox with virtualbox-guest-additions installed. The open issue report can be found [here](https://github.com/gregory-lee-bartholomew/fedora-on-zfs/issues/2) and if anyone knows how to resolve the problem, I welcome your feedback. 🙂
+
 # Demo (installation)
 
 [Installation Demo (SVG 1.8MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/install-demo.svg)
