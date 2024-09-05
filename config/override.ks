@@ -165,7 +165,8 @@ printf '\n'
 systemd-firstboot --force --root="$ANACONDA_ROOT_PATH" --setup-machine-id
 
 # avoid unnecessarily recompiling zfs
-cp -r "/var/lib/dkms" "$ANACONDA_ROOT_PATH/var/lib/dkms"
+cp -a /var/lib/dkms "$ANACONDA_ROOT_PATH/var/lib"
+cp -a /usr/src/zfs-* "$ANACONDA_ROOT_PATH/usr/src"
 
 printf "\n\e[0;97;7m finished $SELF/ \e[0m\n\n"
 %end
