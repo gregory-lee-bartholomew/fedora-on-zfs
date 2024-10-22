@@ -4,13 +4,15 @@ UPDATE=0
 NUMARG=0
 FILTER=()
 
-for arg do
-	[[ ${arg:0:1} == - ]] && continue
-	case "$arg" in
-		(update|upgrade|up) UPDATE=1 ;;
-		(*) break ;;
-	esac
-done
+if ! [[ $* =~ --installroot ]]; then
+	for arg do
+		[[ ${arg:0:1} == - ]] && continue
+		case "$arg" in
+			(update|upgrade|up) UPDATE=1 ;;
+			(*) break ;;
+		esac
+	done
+fi
 
 if [[ $UPDATE == 1 ]]; then
 	for arg do
