@@ -420,7 +420,7 @@ fi
 			printf -- '-drive if=virtio,format=raw,file=%q ' "$f"
 		done
 	)\
-	-virtfs "local,id=host,mount_tag=host,path=$RV,security_model=passthrough" \
+	-virtfs "local,mount_tag=host,path=$RV,security_model=mapped,multidevs=remap" \
 	-kernel "$RV/images/pxeboot/vmlinuz" \
 	-initrd "$RV/images/pxeboot/initrd.img" \
 	-append "$(printf -- '%s' \
