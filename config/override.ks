@@ -251,7 +251,7 @@ for disk in /dev/vd[a-z]; do
 		PARTLABEL=${name} \
 		/${name} \
 		vfat \
-		umask=0077,\
+		dmask=0077,fmask=0177,\
 		context=system_u:object_r:boot_t:s0,\
 		x-systemd.before=bootbind.service,\
 		shortname=lower,\
