@@ -4,7 +4,7 @@ shopt -s lastpipe
 
 for arg; do [[ $arg =~ ^--refresh$ ]] && break; done
 
-/usr/bin/dnf --repo=updates --upgrades rq --nvr kernel "${BASH_REMATCH[0]}" \
+/usr/bin/dnf -q --repo=updates rq --upgrades --queryformat="%{name}-%{evr}\n" kernel "${BASH_REMATCH[0]}" \
 	| read KERNEL
 
 if [[ -z $KERNEL ]]; then
