@@ -12,6 +12,7 @@ uname -m | read ARCH
 declare -A PREREQS=(
 	/usr/bin/git git-core
 	/usr/bin/curl curl
+	/usr/bin/jq jq
 	/usr/bin/awk gawk
 	/usr/bin/sed sed
 	/usr/bin/cpio cpio
