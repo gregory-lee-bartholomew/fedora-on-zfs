@@ -391,7 +391,8 @@ fi
 
 # install the sway window manager if requested
 if [[ $ADD_SWAYWM == yes ]]; then
-	dnf group install -q -y --repo=fedora "Sway Desktop"
+	printf 'The Sway window manager has been requested, installing Sway ...\n'
+	dnf install -q -y --repo=fedora @sway-desktop-environment
 	mkdir -p /etc/skel/.bashrc.d
 	cat <<- 'END' | sed 's/ \{3\}/\t/g' > /etc/skel/.bashrc.d/99-sway-on-tty1
 		if [[ -x /usr/bin/sway ]] && [[ $(tty) == /dev/tty1 ]]; then
