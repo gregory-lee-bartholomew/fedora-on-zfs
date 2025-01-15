@@ -4,8 +4,9 @@ shopt -s lastpipe
 
 for arg; do [[ $arg =~ ^--refresh$ ]] && break; done
 
-/usr/bin/dnf -q --repo=updates rq --upgrades --queryformat="%{name}-%{evr}\n" kernel "${BASH_REMATCH[0]}" \
-	| read KERNEL
+command -p dnf -q --repo=updates rq \
+	--upgrades --queryformat="%{name}-%{evr}\n" \
+	kernel "${BASH_REMATCH[0]}" | read KERNEL
 
 if [[ -z $KERNEL ]]; then
 	printf 'No kernel updates found, aborting ...\n'
@@ -24,9 +25,9 @@ tr -d '\t' <<- WARNING
 	your version of OpenZFS is compatible with this kernel update.
 
 WARNING
-read -r -N 1 -p "Update to $KERNEL [y/n]?: " UPDATE
+read -r -n 1 -p "Update to $KERNEL [y/n]?: " UPDATE
 printf '\n'
 
 if [[ $UPDATE == y ]]; then
-	/usr/bin/dnf -y --repo=updates update kernel*
+	command -p dnf -y --repo=updates update kernel\*
 fi
