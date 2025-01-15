@@ -335,7 +335,9 @@ done
 
 for addon in supplements bootsync homelock; do
 	if [[ -d /host/$addon ]]; then
-		cp -r "/host/$addon" "$ANACONDA_ROOT_PATH/var/tmp" || :
+		mount -m -o bind "/host/$addon" \
+			"$ANACONDA_ROOT_PATH/var/tmp/$addon" \
+		|| :
 	fi
 done
 
@@ -361,7 +363,8 @@ if [[ -d $SRC_DIR ]]; then
 		'Installing supplemental executables' \
 		'(feel free to remove these if you do not want them)'
 	install -v * "/usr/local/bin"
-	cd / && rm -rf "$SRC_DIR"
+	cd -
+	umount "$SRC_DIR"
 	printf '\n'
 fi
 
@@ -373,7 +376,8 @@ if [[ -d $SRC_DIR ]]; then
 		efibootmgr selinux-policy-devel rsync
 	make install
 	make sepolicy_install &> /dev/null
-	cd / && rm -rf "$SRC_DIR"
+	cd -
+	umount "$SRC_DIR"
 	printf '\n'
 fi
 
@@ -385,7 +389,8 @@ if [[ -d $SRC_DIR ]]; then
 	make install "pool=${ZFSROOT%%/*}"
 	make sepolicy_install &> /dev/null
 	sed -i '/^USERS=/ { s/=.*/=()/; }' /etc/security/homelock.conf
-	cd / && rm -rf "$SRC_DIR"
+	cd -
+	umount "$SRC_DIR"
 	printf '\n'
 fi
 
