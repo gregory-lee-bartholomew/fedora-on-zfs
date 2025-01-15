@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+# vim:set ts=3 sw=3:
 
 UPDATE=0
 NUMARG=0
@@ -19,16 +20,18 @@ if [[ $UPDATE == 1 ]]; then
 		[[ ${arg:0:1} == - ]] && continue
 
 		if [[ $arg =~ ^zfs ]]; then
-			printf -- '%b' \
-				'use [1mzfs-update[22m ' \
-				'to update zfs.\n'
+			cat <<- 'END'
+				use [1mzfs-update[22m to update zfs.
+				or use [1mcommand -p dnf [arg ...][22m to bypass this filter.
+			END
 			exit 1
 		fi
 
 		if [[ $arg =~ ^kernel ]]; then
-			printf -- '%b' \
-				'use [1mkernel-update[22m ' \
-				'to update the kernel.\n'
+			cat <<- 'END'
+				use [1mkernel-update[22m to update the kernel.
+				or use [1mcommand -p dnf [arg ...][22m to bypass this filter.
+			END
 			exit 1
 		fi
 
@@ -41,7 +44,7 @@ if [[ $UPDATE == 1 ]]; then
 	fi
 fi
 
-/usr/bin/dnf "${FILTER[@]}" "$@"
+command -p dnf "${FILTER[@]}" "$@"
 if [[ $? -eq 0 ]] && [[ $NUMARG -eq 1 ]] && [[ -t 1 ]]; then
 	cat <<- 'END'
 
