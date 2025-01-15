@@ -17,11 +17,21 @@ uname -m | read ARCH
 . <(tac config/evariables.conf | grep -m 1 '^ZREP=')
 
 function warn {
-	local IFS=''; printf -- "warning: $*\n" 1>&2;
+	local IFS=''; printf -- "warning: $*" 1>&2;
+	if [[ -n $1 ]]; then
+		printf '\n'
+	else
+		timeout 1 cat
+	fi
 }
 
 function fail {
-	local IFS=''; printf -- "error: $*\n" 1>&2;
+	local IFS=''; printf -- "error: $*" 1>&2;
+	if [[ -n $1 ]]; then
+		printf '\n'
+	else
+		timeout 1 cat
+	fi
 	exit 1
 }
 
@@ -117,10 +127,12 @@ else
 fi
 
 if [[ $RV -le 0 ]]; then
-	fail \
-		'failed to determine the current fedora release\n' \
-		'you can specify a release to install manually by pro-\n' \
-		'viding a number as the first argument to this script.\n'
+	fail <<- END
+		failed to determine the current fedora release
+		you can specify a release to install manually by pro-
+		viding a number as the first argument to this script.
+
+	END
 fi
 
 # pre-process the kickstarts
@@ -284,7 +296,6 @@ RPMS+=("${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os\
 /Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm")
 RPMS+=("${ZREP%%*(/)}/$ZKEY")
 TEMPDIR=$(mktemp -d)
-KEYSDIR='updates/etc/pki/rpm-gpg'
 which curl rpm2cpio cpio 1>/dev/null
 for rpm in "${RPMS[@]}"; do
 	printf "downloading $rpm ...\n"
@@ -299,6 +310,7 @@ done
 printf '\n'
 
 # ask the user to verify the keys
+KEYSDIR='updates/etc/pki/rpm-gpg'
 which gpg 1>/dev/null
 rm -rf "$KEYSDIR"
 mkdir -p "$KEYSDIR"
@@ -335,8 +347,11 @@ fi
 mkdir -p "$RV/efi"
 for fd in OVMF_{CODE,VARS}.fd; do
 	if ! cp "/usr/share/edk2/ovmf/$fd" "$RV/efi" &>/dev/null; then
-		fail "failed to make a local copy of '$fd'\n" \
-			'you may need to install the edk2-ovmf package\n'
+		fail <<- END
+			failed to make a local copy of '$fd'
+			you may need to install the edk2-ovmf package
+
+		END
 	fi
 done
 
