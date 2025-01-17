@@ -25,7 +25,9 @@ cat <<- 'END'
 END
 
 cd /root
-DNF=(dnf -y
+DNF=(dnf4 -y)
+"${DNF[@]}" install 'dnf-command(builddep)'
+DNF+=(
 	--repo='fedora' --releasever='30'
 	--nogpgcheck --forcearch='i686'
 	--nodocs --setopt install_weak_deps='False'
