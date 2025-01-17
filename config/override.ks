@@ -333,7 +333,7 @@ done
 	printf '\n'
 )
 
-for addon in supplements bootsync homelock; do
+for addon in bootsync homelock supplements; do
 	if [[ -d /host/$addon ]]; then
 		mount -m -o bind "/host/$addon" \
 			"$ANACONDA_ROOT_PATH/var/tmp/$addon" \
@@ -355,70 +355,79 @@ exec &> /dev/ttyS0
 SELF='scripts/post/3.sh'
 printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 
-# install supplemental scripts
-SRC_DIR='/var/tmp/supplements'
-if [[ -d $SRC_DIR ]]; then
-	cd "$SRC_DIR"
-	printf '%s\n' \
-		'Installing supplemental executables' \
-		'(feel free to remove these if you do not want them)'
-	install -v * "/usr/local/bin"
-	cd -
-	umount "$SRC_DIR"
-	printf '\n'
-fi
-
 # install the bootsync service to keep the ESPs sync'd
-SRC_DIR='/var/tmp/bootsync'
-if [[ -d $SRC_DIR ]]; then
-	cd "$SRC_DIR"
+SRCDIR='/var/tmp/bootsync'
+if mountpoint -q "$SRCDIR"; then
+	cd "$SRCDIR"
+	cat <<- 'END'
+		Installing bootsync ...
+	END
 	dnf install -q -y --repo=fedora \
 		efibootmgr selinux-policy-devel rsync
 	make install
 	make sepolicy_install &> /dev/null
-	cd -
-	umount "$SRC_DIR"
+	cd "$OLDPWD"
+	umount "$SRCDIR"
 	printf '\n'
 fi
 
 # install the homelock service to support encrypted homes if requested
-SRC_DIR='/var/tmp/homelock'
-if [[ -d $SRC_DIR ]]; then
-	cd "$SRC_DIR"
+SRCDIR='/var/tmp/homelock'
+if mountpoint -q "$SRCDIR"; then
+	cd "$SRCDIR"
+	cat <<- 'END'
+		Installing homelock ...
+	END
 	dnf install -q -y --repo=fedora selinux-policy-devel
 	make install "pool=${ZFSROOT%%/*}"
 	make sepolicy_install &> /dev/null
 	sed -i '/^USERS=/ { s/=.*/=()/; }' /etc/security/homelock.conf
-	cd -
-	umount "$SRC_DIR"
+	cd "$OLDPWD"
+	umount "$SRCDIR"
+	printf '\n'
+fi
+
+# install supplemental scripts
+SRCDIR='/var/tmp/supplements'
+if mountpoint -q "$SRCDIR"; then
+	cd "$SRCDIR"
+	cat <<- 'END'
+		Installing supplemental executables ...
+		(feel free to remove these if you do not want them)
+	END
+	install -v * "/usr/local/bin"
+	cd "$OLDPWD"
+	umount "$SRCDIR"
 	printf '\n'
 fi
 
 # install the sway window manager if requested
 if [[ $ADD_SWAYWM == yes ]]; then
-	printf 'The Sway window manager has been requested, installing Sway ...\n'
+	cat <<- 'END'
+		The Sway window manager has been requested, installing Sway ...
+	END
 	dnf install -q -y --repo=fedora @sway-desktop-environment
 	mkdir -p /etc/skel/.bashrc.d
-	cat <<- 'END' | sed 's/ \{3\}/\t/g' > /etc/skel/.bashrc.d/99-sway-on-tty1
+	sed '1d; $d; s/\t\{2\}//;' > /etc/skel/.bashrc.d/99-sway-on-tty1 <<< '
 		if [[ -x /usr/bin/sway ]] && [[ $(tty) == /dev/tty1 ]]; then
-		   SSH_AGENT=()
-		   if [[ -x /usr/bin/ssh-agent ]] && [[ -e $XDG_RUNTIME_DIR ]]; then
-		      SSH_AGENT=(
-		         /usr/bin/ssh-agent -a "$XDG_RUNTIME_DIR/ssh.socket"
-		      )
-		   fi
+			SSH_AGENT=()
+			if [[ -x /usr/bin/ssh-agent ]] && [[ -e $XDG_RUNTIME_DIR ]]; then
+				SSH_AGENT=(
+					/usr/bin/ssh-agent -a "$XDG_RUNTIME_DIR/ssh.socket"
+				)
+			fi
 
-		   # uncomment the following if you need to enable software rendering
-		   # (e.g. might be needed for an old server with limited graphics HW)
-		   # export WLR_RENDERER='pixman'
-		   # export WLR_RENDERER_ALLOW_SOFTWARE='1'
-		   # export LIBGL_ALWAYS_SOFTWARE='true'
+			# uncomment the following if you need to enable software rendering
+			# (e.g. might be needed for an old server with limited graphics HW)
+			# export WLR_RENDERER="pixman"
+			# export WLR_RENDERER_ALLOW_SOFTWARE="1"
+			# export LIBGL_ALWAYS_SOFTWARE="true"
 
-		   printf 'launching sway ...\n'
-		   exec 0<&- &> /dev/null
-		   exec "${SSH_AGENT[@]}" /usr/bin/sway
+			printf "launching sway ...\n"
+			exec 0<&- &> /dev/null
+			exec "${SSH_AGENT[@]}" /usr/bin/sway
 		fi
-	END
+	'
 fi
 
 systemctl disable initial-setup.service &> /dev/null
