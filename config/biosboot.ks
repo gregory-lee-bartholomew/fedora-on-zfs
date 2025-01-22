@@ -13,71 +13,68 @@ trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 shopt -s lastpipe
 
 cat <<- 'END'
-	biosboot support has been requested, setting up a 32-bit build env.
+	biosboot support has been requested
 
 	note: any failures from this point on will [3monly[23m affect the BIOS
 	bootloader. the UEFI bootloader and the rest of the os are complete.
 
-	# fedora linux 30 was the last to support a full 32-bit environment
-	# we need the 32-bit env to build syslinux's .c32 modules. they run
-	# (and terminate) before the 64-bit kernel is loaded. so it doesn't
-	# matter what host os is used to build them.
 END
 
-cd /root
-DNF=(dnf4 -y)
-"${DNF[@]}" install 'dnf-command(builddep)'
-DNF+=(
-	--repo='fedora' --releasever='30'
-	--nogpgcheck --forcearch='i686'
-	--nodocs --setopt install_weak_deps='False'
+cd '/root'
+MARK="$ZFSROOT@syslinux-build"
+zfs snapshot "$MARK"
+DNF=(dnf
+	--assumeyes
+	--repo=fedora
+	--no-docs
+	--setopt install_weak_deps=false
 )
 "${DNF[@]}" download --source "syslinux"
-BUILDROOT="$PWD/syslinux-buildroot"
-mkdir -p "$BUILDROOT"
-DNF+=(--installroot="$BUILDROOT")
-rpm2cpio syslinux-*.src.rpm | cpio -i -u --quiet \*syslinux.spec
-sed -i 's!^BuildRequires: .*/stubs-32.h!#&!' syslinux.spec
-"${DNF[@]}" builddep syslinux.spec
-"${DNF[@]}" install 'make' 'gcc' 'mingw32-gcc' 'rpmdevtools'
-for i in biosboot-patches syslinux-*.src.rpm; do
-	mv "$i" "$BUILDROOT/root"
-done
-cat <<- 'END' | chroot "$BUILDROOT" /usr/bin/bash
-	set -ex
-	TOPDIR='/root/rpmbuild'
-	mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-	cd $TOPDIR
-	rpm --define "_topdir $TOPDIR" -ivh ../syslinux-*.src.rpm
-	cp -v ../biosboot-patches/*.patch SOURCES
-	export SPEC="$(find SPECS -name '*.spec' -print -quit)"
-	perl -0 <<- 'FIM'
-		opendir DH, 'SOURCES';
-		$PATCHES = join '',
-			map { 'Patch' . substr($_, 0, 4) . ": $_\n" }
-			sort grep { m{\.patch$} } readdir DH
-		;
-		closedir DH;
-		open FH, '+<', $ENV{'SPEC'};
-		$BUFFER = <FH>;
-		$BUFFER =~ s{^(Patch[0-9]{4}: .*?\n)+}{$PATCHES}m;
-		$BUFFER =~ s{^(Release): .*$}{$1: 1.0.fc00}m;
-		seek FH, 0, 0;
-		truncate FH, 0;
-		print FH $BUFFER;
-		close FH;
-	FIM
-	rpmbuild --define "_topdir $TOPDIR" -bb --target i686 --nodeps "$SPEC"
-END
-find "$BUILDROOT/root/rpmbuild/RPMS/noarch" \
-	-name 'syslinux-nonlinux-*.noarch.rpm' | readarray -t SLNL
+"${DNF[@]}" install rpmdevtools mock
+TOPDIR="$PWD/rpmbuild"
+mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS}
+ln -s '/tmp' "$TOPDIR/SRPMS"
+cd "$TOPDIR"
+rpm --define "_topdir $TOPDIR" -ivh ../syslinux-*.src.rpm
+cp -v ../biosboot-patches/*.patch SOURCES
+export SPEC="$(find SPECS -name '*.spec' -print -quit)"
+perl -0 <<- 'FIM'
+        opendir DH, 'SOURCES';
+        $PATCHES = join '',
+                map { 'Patch' . substr($_, 0, 4) . ": $_\n" }
+                sort grep { m{\.patch$} } readdir DH
+        ;
+        closedir DH;
+        open FH, '+<', $ENV{'SPEC'};
+        $BUFFER = <FH>;
+        $BUFFER =~ s{^(Patch[0-9]{4}: .*?\n)+}{$PATCHES}m;
+        $BUFFER =~ s{^(Release): .*$}{$1: 1.0.fc00}m;
+        seek FH, 0, 0;
+        truncate FH, 0;
+        print FH $BUFFER;
+        close FH;
+FIM
+rpmbuild --define "_topdir $TOPDIR" -bs --target x86_64 --nodeps "$SPEC"
+find '/tmp' -name 'syslinux-*.src.rpm' | readarray -t SL
+
+if [[ ${#SL[*]} -eq 1 ]]; then
+        mkdir /tmp/syslinux
+        mock -r "fedora-$RELEASEVER-x86_64" --isolation='simple' --cleanup-after --resultdir='/tmp/syslinux' --rebuild "${SL[0]}"
+fi
+
+# cleanup
+zfs rollback "$MARK"
+zfs destroy "$MARK"
 printf '\n'
+
+find '/tmp/syslinux' -name 'syslinux-nonlinux-*.noarch.rpm' \
+	| readarray -t SLNL
 
 if [[ ${#SLNL[*]} -eq 1 ]]; then
 	# archive the rpm under /root
 	mv "${SLNL[0]}" /root
 
-	cat <<- END
+	cat <<- 'END'
 		good news! the compile of the custom syslinux-nonlinux package
 		with bootloader type 1 support was successful.
 
@@ -92,7 +89,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 
 	END
 
-	dnf install -y --repo=fedora syslinux
+	"${DNF[@]}" install syslinux
 	(
 		set -x
 		rpm --nodeps --erase syslinux-nonlinux
@@ -104,11 +101,11 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 	# prevent system updates from overwriting our custom syslinux build
 	perl -0 <<- 'FIM'
 		open FH, '+<', '/etc/dnf/dnf.conf';
-		$BUFFER = <FH> =~ s{^exclude=.*$}{$&,syslinux*}mr;
+		$BUFFER = <FH> =~ s{^excludepkgs=.*$}{$&,syslinux*}mr;
 		seek FH, 0, 0;
 		print FH $BUFFER;
 		if (!$&) {
-			print FH "exclude=syslinux*\n";
+			print FH "excludepkgs=syslinux*\n";
 		}
 		close FH;
 	FIM
@@ -161,9 +158,6 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 		umount "$base"
 		printf '\n'
 	done
-
-	# delete the build env to save space
-	rm -rf "$BUILDROOT"
 
 	# bootbind.service doesn't work with bios booting
 	systemctl disable bootbind.service &> /dev/null
