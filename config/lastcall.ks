@@ -22,7 +22,7 @@ trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 trap 'exit 0' exit
 
 # make sure all the filesystems are mounted
-mount -a
+mount -a &> /dev/null
 
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
