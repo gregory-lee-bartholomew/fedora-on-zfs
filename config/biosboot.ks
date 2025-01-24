@@ -26,10 +26,12 @@ zfs snapshot "$MARK"
 DNF=(dnf
 	--assumeyes
 	--repo=fedora
+)
+"${DNF[@]}" download --source "syslinux"
+DNF+=(
 	--no-docs
 	--setopt install_weak_deps=false
 )
-"${DNF[@]}" download --source "syslinux"
 "${DNF[@]}" install rpmdevtools mock
 TOPDIR="$PWD/rpmbuild"
 mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS}
