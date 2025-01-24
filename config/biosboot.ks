@@ -61,7 +61,7 @@ find '/tmp' -name 'syslinux-*.src.rpm' | readarray -t SL
 
 if [[ ${#SL[*]} -eq 1 ]]; then
         mkdir /tmp/syslinux
-        mock -r "fedora-$RELEASEVER-x86_64" --isolation='simple' --cleanup-after --resultdir='/tmp/syslinux' --rebuild "${SL[0]}"
+        mock -r "fedora-$RELEASEVER-x86_64" --isolation='simple' --resultdir='/tmp/syslinux' --rebuild "${SL[0]}"
 fi
 
 printf '\n'
