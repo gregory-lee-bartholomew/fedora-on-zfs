@@ -64,15 +64,16 @@ if [[ ${#SL[*]} -eq 1 ]]; then
         mock -r "fedora-$RELEASEVER-x86_64" --isolation='simple' --cleanup-after --resultdir='/tmp/syslinux' --rebuild "${SL[0]}"
 fi
 
-# cleanup
-zfs rollback "$MARK"
-zfs destroy "$MARK"
 printf '\n'
 
 find '/tmp/syslinux' -name 'syslinux-nonlinux-*.noarch.rpm' \
 	| readarray -t SLNL
 
 if [[ ${#SLNL[*]} -eq 1 ]]; then
+	# cleanup
+	zfs rollback "$MARK"
+	zfs destroy "$MARK"
+
 	# archive the rpm under /root
 	mv "${SLNL[0]}" /root
 
@@ -172,11 +173,10 @@ else
 
 		pausing the installation now so you can (optionally) run
 		ssh -p ${SSHPORT} root@127.0.0.1 chroot $ANACONDA_ROOT_PATH bash -l
-		and attempt to get the code under $BUILDROOT/root/rpmbuild to compile.
-		(you will need to chroot a second time to the 32-bit $BUILDROOT.)
-		(you will also need to manually enter the commands at the end of
-		the biosboot.ks script to actually install syslinux should you get it
-		to compile.)
+		and attempt to get the /tmp/syslinux-*.src.rpm package to compile.
+		(you will need to manually enter the commands at the end of the
+		biosboot.ks script to actually install syslinux should you get it to
+		compile.)
 
 		otherwise, press any key to continue and UEFI booting will still work.
 	END
