@@ -29,7 +29,7 @@ DNF=(dnf
 )
 "${DNF[@]}" download --source "syslinux"
 DNF+=(
-	--no-docs
+	--nodocs
 	--setopt install_weak_deps=false
 )
 "${DNF[@]}" install rpmdevtools mock
