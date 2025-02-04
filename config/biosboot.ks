@@ -141,7 +141,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 			menu background #ff000000
 
 			menu color screen	0 #ff808080 #ff000000 none
-			menu color border	30;40 #ff000000 #ff000000 none
+			menu color border	0 #ff000000 #ff000000 none
 			menu color title	1 #ffffffff #ff000000 none
 			menu color unsel	0 #ff808080 #ff000000 none
 			menu color hotkey	0 #ff808080 #ff000000 none
@@ -152,7 +152,7 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 			menu color tabmsg	0 #ff808080 #ff000000 none
 			menu color cmdmark	0 #ff808080 #ff000000 none
 			menu color cmdline	0 #ff808080 #ff000000 none
-			menu color pwdborder	30;40 #ff000000 #ff000000 none
+			menu color pwdborder	0 #ff000000 #ff000000 none
 			menu color pwdheader	0 #ff808080 #ff000000 none
 			menu color pwdentry	0 #ff808080 #ff000000 none
 			menu color timeout_msg	0 #ff808080 #ff000000 none
