@@ -27,7 +27,9 @@ DNF=(dnf
 	--assumeyes
 	--repo=fedora
 )
-"${DNF[@]}" download --source "syslinux"
+SLVER=''
+[[ $RELEASEVER -eq 40 ]] && SLVER='41' # the F40 syslinux package fails to build
+"${DNF[@]}" ${SLVER:+--releasever=$SLVER} download --source 'syslinux'
 DNF+=(
 	--nodocs
 	--setopt install_weak_deps=false
