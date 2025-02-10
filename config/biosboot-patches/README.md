@@ -98,7 +98,7 @@ BLS1 FORMAT . $title ($version)
 BLS1 INCLUDE /loader/entries
 ```
 
-Might yield a menu list like the following:
+The above configuration might yield a boot menu similar to the following:
 
 ```
 1. Linux (4.20)
