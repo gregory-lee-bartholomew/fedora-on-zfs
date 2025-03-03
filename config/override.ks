@@ -256,6 +256,7 @@ for disk in /dev/vd[a-z]; do
 		x-systemd.before=bootbind.service,\
 		shortname=lower,\
 		flush,\
+		discard,\
 		nofail \
 		0 0
 	END
