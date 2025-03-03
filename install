@@ -249,8 +249,18 @@ while [[ -n $1 ]]; do
 	FILE+=("$1")
 	shift
 done
-if [[ ${#FILE[*]} -lt 2 ]]; then
+
+# sanity checks
+if [[ -n $ZFSRAID ]] && [[ ${#FILE[*]} -lt 2 ]]; then
 	fail 'you must supply at least two drives\n'
+fi
+if [[ $ZFSRAID =~ ^d?raidz?$ ]]; then
+	fail "[1m${ZFSRAID}[22m isn't really a thing. Did you mean ${ZFSRAID}1?"
+fi
+if
+	[[ $ZFSRAID =~ ^d?raidz?([1-3])$ ]] && ! [[ ${#FILE[*]} -gt ${BASH_REMATCH[1]} ]]
+then
+	fail "[1m${ZFSRAID}[22m requires at least $((${BASH_REMATCH[1]}+1)) drives."
 fi
 
 # fetch the anaconda boot files

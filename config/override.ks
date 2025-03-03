@@ -70,7 +70,7 @@ printf 'initializing zfs file systems ...\n\n'
 
 zpool create -f -m none -R "$ANACONDA_ROOT_PATH" \
 	$(grep -i '^-o ' /host/config/properties.conf) \
-	"${ZFSROOT%%/*}" mirror /dev/disk/by-partlabel/root@[a-z]
+	"${ZFSROOT%%/*}" $ZFSRAID /dev/disk/by-partlabel/root@[a-z]
 
 zpool list -LvP -o name,size,allocated,free,checkpoint,\
 expandsize,fragmentation,capacity,dedupratio,health
