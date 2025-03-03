@@ -21,6 +21,15 @@ trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
 # regardless of what happens
 trap 'exit 0' exit
 
+# disable the generic fstrim.timer and enable zfs-trim-weekly@.timer
+# instead. fstrim doesn't work on ZFS and we've set the equivalent "discard"
+# option for the ESPs in /etc/fstab.
+systemctl disable fstrim.timer || :
+if zpool get -H -o source autotrim "${ZFSROOT%%/*}" | grep -q 'default'; then
+	systemctl enable "zfs-trim-weekly@${ZFSROOT%%/*}.timer"
+fi
+printf '\n'
+
 # make sure all the filesystems are mounted
 mount -a &> /dev/null
 
