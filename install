@@ -239,7 +239,8 @@ if [[ $KS == fedora-disk-minimal.ks ]] && [[ $RV -ge 38 ]]; then
 fi
 printf '\n'
 
-# make sure that at least two drives/files have been supplied
+# sanity checks
+. <(tac config/evariables.conf | grep -m 1 '^ZFSRAID=')
 declare -a FILE=()
 while [[ -n $1 ]]; do
 	if ! [[ -e $1 ]]; then
@@ -249,12 +250,10 @@ while [[ -n $1 ]]; do
 	FILE+=("$1")
 	shift
 done
-
-# sanity checks
-if [[ -n $ZFSRAID ]] && [[ ${#FILE[*]} -lt 2 ]]; then
+if [[ $ZFSRAID == mirror ]] && [[ ${#FILE[*]} -lt 2 ]]; then
 	fail 'you must supply at least two drives\n'
 fi
-if [[ $ZFSRAID =~ ^d?raidz?$ ]]; then
+if [[ $ZFSRAID == draid ]] || [[ $ZFSRAID == raidz ]]; then
 	fail "[1m${ZFSRAID}[22m isn't really a thing. Did you mean ${ZFSRAID}1?"
 fi
 if
