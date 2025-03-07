@@ -62,8 +62,13 @@ rpmbuild --define "_topdir $TOPDIR" -bs --target x86_64 --nodeps "$SPEC"
 find '/tmp' -name 'syslinux-*.src.rpm' | readarray -t SL
 
 if [[ ${#SL[*]} -eq 1 ]]; then
-        mkdir /tmp/syslinux
-        mock -r "fedora-$RELEASEVER-x86_64" --isolation='simple' --resultdir='/tmp/syslinux' --rebuild "${SL[0]}"
+		mkdir /tmp/syslinux
+		mock \
+			-r "fedora-$RELEASEVER-x86_64" \
+			--isolation='simple' \
+			--resultdir='/tmp/syslinux' \
+			--no-cleanup-after \
+			--rebuild "${SL[0]}"
 fi
 
 printf '\n'
