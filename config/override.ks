@@ -205,8 +205,40 @@ printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 # install systemd-boot
 # (also causes the initramfs to be regenerated with the zfs drivers)
 TIMEOUT=10
-printf 'root=zfs:%s %s\n' "$ZFSROOT" "$CMDLINE" \
-	> /etc/kernel/cmdline
+mkdir -p /etc/kernel/install.d
+cat <<- END > /etc/kernel/cmdline
+	root=zfs:$ZFSROOT $CMDLINE
+END
+FILE='/etc/kernel/install.d/91-loaderentry-update-title.install'
+cat <<- 'END' > "$FILE"
+	#!/usr/bin/sh
+
+	set -e
+
+	trap 'exit 0' exit
+
+	COMMAND="${1:?}"
+	KERNEL_VERSION="${2:?}"
+
+	[ "$COMMAND" = "add" ]
+	[ "$KERNEL_INSTALL_LAYOUT" = "bls" ]
+
+	ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+	BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+	LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+	ROOTFS=''
+	for option in $(grep '^options\s' "$LOADER_ENTRY"); do
+		ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+	done
+
+	[ -n "$ROOTFS" ]
+
+	grep -q "^title\s.* ($ROOTFS)$" "$LOADER_ENTRY" || \
+	    sed -i "s%^title\s.*%& ($ROOTFS)%" "$LOADER_ENTRY"
+END
+chmod +x "$FILE"
 printf 'hostonly="no"\n' \
 	> /etc/dracut.conf.d/hostonly.conf
 if mountpoint -q /boot; then
