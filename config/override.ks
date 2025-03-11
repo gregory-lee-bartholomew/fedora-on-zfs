@@ -54,7 +54,7 @@ sleep 1
 dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
 	"/host/$ZKEY"
 dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
-	--repo=fedora --repo=zfs zfs
+	--repo=fedora --repo=zfs libunwind zfs
 printf '\n'
 
 # create a new hostid for zfs
@@ -199,7 +199,7 @@ rpm --import /etc/pki/rpm-gpg/* &> /dev/null
 # install zfs on the target system
 rpm --nodeps --erase zfs-fuse &> /dev/null || :
 dnf install -q -y "/var/tmp/$ZKEY"
-dnf install -q -y --repo=fedora --repo=zfs kernel-devel zfs zfs-dracut
+dnf install -q -y --repo=fedora --repo=zfs libunwind kernel-devel zfs zfs-dracut
 printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 
 # install systemd-boot
