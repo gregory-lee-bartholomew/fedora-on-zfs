@@ -76,7 +76,7 @@ zpool list -LvP -o name,size,allocated,free,checkpoint,\
 expandsize,fragmentation,capacity,dedupratio,health
 printf '\n'
 
-zfs create -o mountpoint=/ "$ZFSROOT"
+zfs create -o canmount=noauto -o mountpoint=/ "$ZFSROOT"
 (
 	IFS=$'\n'
 	for mp in $(</host/config/filesystems.conf); do
@@ -91,6 +91,7 @@ zfs create -o mountpoint=/ "$ZFSROOT"
 		zfs create "${options[@]}" "${ZFSROOT%%/*}/${fs//\//-}"
 	done
 )
+zfs mount "$ZFSROOT"
 
 # double-check that the zfs operations were successful
 trap "printf 'error: failed to create zfs file systems'; exit 1;" exit
