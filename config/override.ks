@@ -206,6 +206,7 @@ printf 'add_drivers+=" zfs "\n' > /etc/dracut.conf.d/zfs.conf
 # install systemd-boot
 # (also causes the initramfs to be regenerated with the zfs drivers)
 TIMEOUT=10
+DEFAULT="$(</etc/machine-id)-*"
 mkdir -p /etc/kernel/install.d
 cat <<- END > /etc/kernel/cmdline
 	root=zfs:$ZFSROOT $CMDLINE
@@ -309,7 +310,10 @@ for disk in /dev/vd[a-z]; do
 		mkdir -v /${name}/$MACHINE_ID
 	fi
 
-	sed -i "/timeout/ { s/^#//; s/[0-9]\\+/$TIMEOUT/; }" \
+	sed -i -n -e '/^#\?default\s/I!p' -e "\$a default $DEFAULT" \
+		/${name}/loader/loader.conf || :
+
+	sed -i -n -e '/^#\?timeout\s/I!p' -e "\$a timeout $TIMEOUT" \
 		/${name}/loader/loader.conf || :
 
 	if ! mount -v -o bind /${name} /boot 2> /dev/null; then
