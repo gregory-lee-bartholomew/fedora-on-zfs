@@ -7,9 +7,11 @@ shopt -s lastpipe
 shopt -s nocasematch
 shopt -s extglob
 
-trap \
-	'printf "an error has occurred on line ${LINENO} of ${0##*/}\n" 1>&2' \
-err
+function trace {
+	printf '\n\nAn error has occurred on line %s%s.\n' $1 ${2:+of $2} 1>&2
+}
+
+trap 'trace ${LINENO} ${0##*/}' err
 
 uname -m | read ARCH
 
@@ -17,26 +19,26 @@ uname -m | read ARCH
 . <(tac config/evariables.conf | grep -m 1 '^ZREP=')
 
 function warn {
-	local IFS=''; printf -- "warning: $*" 1>&2;
+	local IFS=''; printf -- "WARNING: $*" 1>&2;
 	if [[ -n $1 ]]; then
 		printf '\n'
 	else
-		timeout 1 cat
+		timeout 1 fmt -g 75
 	fi
 }
 
 function fail {
-	local IFS=''; printf -- "error: $*" 1>&2;
+	local IFS=''; printf -- "ERROR: $*" 1>&2;
 	if [[ -n $1 ]]; then
 		printf '\n'
 	else
-		timeout 1 cat
+		timeout 1 fmt -g 75
 	fi
 	exit 1
 }
 
 function usage {
-	printf -- '%b' "usage: ./${0##*/} [qemu options] [release] <kickstart>" \
+	printf -- '%b' "USAGE: ./${0##*/} [qemu options] [release] <kickstart>" \
 		" <drive1> <drive2> [<driveN> ...]\n" 1>&2
 	exit 1
 }
@@ -128,9 +130,9 @@ fi
 
 if [[ $RV -le 0 ]]; then
 	fail <<- END
-		failed to determine the current fedora release
-		you can specify a release to install manually by pro-
-		viding a number as the first argument to this script.
+		Failed to determine the current fedora release. You can specify a
+		release to install manually by providing a number as the first
+		argument to this script.
 
 	END
 fi
@@ -138,14 +140,14 @@ fi
 # pre-process the kickstarts
 KS="${1#fedora-kickstarts/}"; shift || usage
 if ! [[ $KS =~ ^fedora-disk- ]]; then
-	fail 'this script only works with fedora-disk-* kickstart scripts\n'
+	fail 'This script only works with fedora-disk-* kickstart scripts.\n'
 fi
 if ! [[ -e fedora-kickstarts ]]; then
 	git clone 'https://pagure.io/fedora-kickstarts.git'
 fi
 (cd fedora-kickstarts && git checkout "f$RV") || exit 1
 if ! [[ -f fedora-kickstarts/$KS ]]; then
-	fail "kickstart file 'fedora-kickstarts/$KS' not found\n"
+	fail "Kickstart file 'fedora-kickstarts/$KS' not found.\n"
 fi
 rm -rf "$RV/fedora-kickstarts"
 for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
@@ -251,7 +253,7 @@ while [[ -n $1 ]]; do
 	shift
 done
 if [[ $ZFSRAID == mirror ]] && [[ ${#FILE[*]} -lt 2 ]]; then
-	fail 'you must supply at least two drives\n'
+	fail 'You must supply at least two drives.\n'
 fi
 if [[ $ZFSRAID == draid ]] || [[ $ZFSRAID == raidz ]]; then
 	fail "[1m${ZFSRAID}[22m isn't really a thing. Did you mean ${ZFSRAID}1?"
@@ -268,7 +270,7 @@ if ! [[ -d $RV/images/pxeboot ]]; then
 fi
 for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
 	if ! [[ -e $RV/$BF ]]; then
-		printf "downloading $BF for fedora linux $RV on $ARCH\n"
+		printf "Downloading $BF for fedora linux $RV on $ARCH...\n"
 		curl -\# -f --remove-on-error -o "$RV/.partial" \
 			-L "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/$BF"
 		mv "$RV/.partial" "$RV/$BF"
@@ -279,7 +281,7 @@ printf '\n'
 # fetch the gpg rpms and extract the gpg keys
 trap -p err | read -r PREVIOUS_ERR_TRAP || :
 trap "printf '%s\n' \
-	'error: ZFS repo gpg key for Fedora Linux $RV not found at $ZREP' \
+	'ERROR: ZFS repo gpg key for Fedora Linux $RV not found at $ZREP.' \
 " err
 if [[ $ZREP =~ \.rpm$ ]]; then
 	ZKEY="${ZREP##*/}"
@@ -307,13 +309,13 @@ RPMS+=("${ZREP%%*(/)}/$ZKEY")
 TEMPDIR=$(mktemp -d)
 which curl rpm2cpio cpio 1>/dev/null
 for rpm in "${RPMS[@]}"; do
-	printf "downloading $rpm ...\n"
+	printf "Downloading $rpm ...\n"
 	if ! curl -s -L "$rpm" \
 		| tee "$RV/${rpm##*/}" \
 		| rpm2cpio \
 		| cpio -i -u -d --quiet --directory="$TEMPDIR" "./etc/pki/rpm-gpg/*"
 	then
-		fail 'bad link. are $FREP and $ZREP correct?\n'
+		fail 'The download failed. Are $FREP and $ZREP correct?\n'
 	fi
 done
 printf '\n'
@@ -330,11 +332,11 @@ for key in "${KEYS[@]}"; do
 
 	gpg --show-keys "$key"
 
-	prompt 'is the gpg key fingerprint shown above correct?'
+	prompt 'Is the gpg key fingerprint shown above correct?'
 	if [[ $ANSWER == y ]]; then
 		cp "$key" "$KEYSDIR"
 	else
-		printf "omitting ${key##*/}\n"
+		printf "Omitting ${key##*/}.\n"
 	fi
 
 	printf '\n'
@@ -357,8 +359,8 @@ mkdir -p "$RV/efi"
 for fd in OVMF_{CODE,VARS}.fd; do
 	if ! cp "/usr/share/edk2/ovmf/$fd" "$RV/efi" &>/dev/null; then
 		fail <<- END
-			failed to make a local copy of '$fd'
-			you may need to install the edk2-ovmf package
+			Failed to make a local copy of '$fd'.
+			You might need to install the edk2-ovmf package.
 
 		END
 	fi
@@ -373,8 +375,10 @@ done
 printf '\n'
 
 # give the user one last chance to abort
-printf "warning, this will erase all data from: \e[1;31m${FILE[*]}\e[22;39m\n"
-prompt 'are you sure you want to continue?'
+cat <<- END
+	WARNING: This will erase all data from: [1;31m${FILE[*]}[22;39m
+END
+prompt 'Are you sure you want to continue?'
 if [[ $ANSWER == y ]]; then
 	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
 		fail "$STATUS\n"
@@ -387,12 +391,12 @@ fi
 
 cat <<- END
 
-	launching the anaconda installer...
+	Launching the anaconda installer.
 
-	you can press [1mctrl-a x[22m at any time to kill the installer
-	or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer
+	You can press [1mctrl-a x[22m at any time to kill the installer.
+	Or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer.
 
-	you can get some coffee now ... this will take a while
+	You can get some coffee now. This will take a while.
 
 END
 
@@ -461,7 +465,7 @@ mv "$RV/efi" efi
 
 cat <<- END
 
-	The UEFI firmware images needed to boot the installed
-	system with QEMU have been saved under the [1mefi[22m directory.
+	The UEFI firmware images needed to boot the installed system
+	with QEMU have been saved under the [1mefi[22m directory.
 
 END
