@@ -5,7 +5,7 @@ shopt -s lastpipe
 for arg; do [[ $arg =~ ^--refresh$ ]] && break; done
 
 command -p dnf -q --repo=updates rq \
-	--upgrades --queryformat="%{name}-%{evr}\n" \
+	--upgrades --queryformat="%{evr}.%{arch}\n" \
 	kernel "${BASH_REMATCH[0]}" | read KERNEL
 
 if [[ -z $KERNEL ]]; then
@@ -15,19 +15,44 @@ fi
 
 rpm -q zfs | read ZFS
 
-tr -d '\t' <<- WARNING
+tr -d '\t' <<- CAUTION
 
-	Kernel update [1m$KERNEL[22m is available.
-	Your current version of OpenZFS is [1m$ZFS[22m.
+	Kernel update [1mkernel-$KERNEL[22m is available.
+	Your current version of OpenZFS is \
+	[1m${ZFS:-[31munknown[39m}[22m.
 
 	Before proceeding, check \
-	[1mhttps://github.com/openzfs/zfs/releases[22m to verify that
-	your version of OpenZFS is compatible with this kernel update.
+	[1mhttps://github.com/openzfs/zfs/releases[22m to veri-
+	fy that your version of OpenZFS is compatible with this kernel update.
 
-WARNING
-read -r -n 1 -p "Update to $KERNEL [y/n]?: " UPDATE
+CAUTION
+read -r -n 1 -p "Update to kernel-$KERNEL [y/n]?: " UPDATE
 printf '\n'
 
-if [[ $UPDATE == y ]]; then
-	command -p dnf -y --repo=updates update kernel\*
+if [[ $UPDATE != y ]]; then
+	printf 'Update canceled.\n'
+	exit 0
 fi
+
+command -p dnf -y --repo=updates update kernel\* || exit 1
+
+lsinitrd -m -k "$KERNEL" | grep -qx 'zfs' && exit 0
+
+fmt -g 75 <<- ERROR
+	ERROR: The zfs module does not appear to be in the updated initramfs.
+	Without the zfs module, the new kernel+initramfs will not be able to
+	boot your root-on-zfs system. You have a choice:
+
+	1. Run [1mdnf history undo last[22m to undo this kernel update.
+
+	2. Exit now. (You can attempt to fix the problem manually with
+	[1mdkms remove/add[22m and [1mkernel-install remove/add[22m.)
+
+ERROR
+read -r -n 1 -p "What is your choice [1/2]?: " CHOICE
+printf '\n'
+
+case "$CHOICE" in
+	(1) command -p dnf history undo --skip-unavailable last ;;
+	(*) exit 1 ;;
+esac
