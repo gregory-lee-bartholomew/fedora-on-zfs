@@ -81,6 +81,41 @@ if [[ -z $1 ]] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 	usage
 fi
 
+UEFI='/sys/firmware/efi/efivars'
+. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
+
+PROMPT=0
+
+if [[ -z $BIOSBOOT ]] && ! [[ -e $UEFI ]]; then
+	warn <<- END
+		$UEFI not found. Either this is not a UEFI-capable system, or it is
+		set to use legacy boot. (Or it is capable of both but you selected the
+		legacy option when booting.) If you really want or need legacy boot
+		support, uncomment the BIOSBOOT line in config/evariables.conf.
+		Otherwise, you can continue and rely on your system's firmware to
+		autodetect the /efi/boot/bootx64.efi fallback bootloader. (If possible,
+		you should reboot and enable/select UEFI mode.)
+
+	END
+	PROMPT=1
+fi
+
+if [[ -z $BIOSBOOT ]] && ! type efibootmgr &> /dev/null; then
+	warn <<- END
+		The efibootmgr command was not found. This script will not be able to
+		update your system's default boot order. (If necessary, you should be
+		able to update the boot order manually using your system's
+		firmware/BIOS interface.)
+
+	END
+	PROMPT=1
+fi
+
+if [[ $PROMPT == 1 ]]; then
+	prompt 'Do you want to continue?'
+	[[ $ANSWER == n ]] && exit 1
+fi
+
 # determine how much physical and virtual memory is available (in KB)
 grep -m 1 -o '[0-9]\+' /proc/meminfo \
    | read PHYS_MEM
@@ -179,7 +214,6 @@ END
 
 # combine the provided kickstart and our scripts
 # to create the final kickstart (fedora-on-zfs.ks)
-. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
 cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
 %include /host/fedora-kickstarts/$KS
 %include /host/config/override.ks
@@ -459,6 +493,31 @@ fi
 		"inst.stage2=http://10.0.2.200/$RV " \
 		'inst.sshd ' \
 	)"
+
+if [[ -e $UEFI ]] && type efibootmgr &> /dev/null; then
+	prompt "\nUEFI detected, update this system's default boot order?"
+	printf '\n'
+	if [[ $ANSWER == y ]]; then
+		STATUS=()
+		efibootmgr | while read line; do
+			if [[ $line =~ ^Boot(....).*SD-BOOT\ [A-Z] ]]; then
+				efibootmgr -b "${BASH_REMATCH[1]}" -B > /dev/null || :
+			fi
+		done
+		LETTERS=({A..Z})
+		while [[ ${#FILE[@]} -gt 0 ]]; do
+			LETTER=${LETTERS[$((${#FILE[@]}-1))]}
+			if [[ -n $LETTER ]]; then
+				efibootmgr -c \
+					-d "${FILE[-1]}" \
+					-l "/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi" \
+					-L "SD-BOOT $LETTER" | readarray STATUS
+			fi
+			unset FILE[-1]
+		done
+		printf '%s' "${STATUS[@]}"
+	fi
+fi
 
 rm -rf efi
 mv "$RV/efi" efi

@@ -22,6 +22,10 @@ declare -A PREREQS=(
 	"/usr/bin/qemu-system-$ARCH" "qemu-system-${ARCH%%_*}-core"
 )
 
+if [[ -e /sys/firmware/efi/efivars ]]; then
+	PREREQS+=(/usr/sbin/efibootmgr efibootmgr)
+fi
+
 function prompt {
 	ANSWER=''
 	read -e -t 0.125 &> /dev/null || :
@@ -47,11 +51,11 @@ done
 case "${#PREREQS[*]}" in
 	(0)
 		STATUS='positive'
-		printf '\nAll dependencies have been satisfied.\n'
+		printf '\n\nAll dependencies have been satisfied.\n'
 	;;
 	(*)
 		STATUS='negative'
-		printf '\nSome dependencies are not satisfied.\n'
+		printf '\n\nSome dependencies are not satisfied.\n'
 	;;
 esac
 
