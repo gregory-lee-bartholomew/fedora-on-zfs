@@ -232,13 +232,13 @@ cat <<- 'END' > "$FILE"
 
 	ROOTFS=''
 	for option in $(grep '^options\s' "$LOADER_ENTRY"); do
-		ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+	   ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
 	done
 
 	[ -n "$ROOTFS" ]
 
-	grep -q "^title\s.* ($ROOTFS)$" "$LOADER_ENTRY" || \
-	    sed -i "s%^title\s.*%& ($ROOTFS)%" "$LOADER_ENTRY"
+	sed -i -e '/^title\s/ { \| ('"$ROOTFS"')$|! s|$| ('"$ROOTFS"')|; }' \
+	   "$LOADER_ENTRY"
 END
 chmod +x "$FILE"
 printf 'hostonly="no"\n' \
