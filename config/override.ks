@@ -211,6 +211,10 @@ mkdir -p /etc/kernel/install.d
 cat <<- END > /etc/kernel/cmdline
 	root=zfs:$ZFSROOT $CMDLINE
 END
+cat <<- END > /etc/kernel/install.conf
+	BOOT_ROOT=/boot
+	layout=bls
+END
 FILE='/etc/kernel/install.d/91-loaderentry-update-title.install'
 cat <<- 'END' > "$FILE"
 	#!/usr/bin/sh
