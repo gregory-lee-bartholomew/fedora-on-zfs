@@ -1,0 +1,178 @@
+#!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+set -e
+shopt -s lastpipe
+
+# pass options to kernel-install (e.g., -v)
+KIOPS=()
+while [[ $1 == -* ]]; do
+	KIOPS+=($1)
+	shift
+done
+
+function B {
+	printf -- '[1m%s[22m' "$*"
+}
+
+function usage {
+	cat <<- END 1>&2
+
+		$(B USAGE): ${0##*/} [-v] <source-filesystem> <target-filesystem>
+
+		For example: ${0##*/} root/0 root/1
+
+		- The source filesystem must exist.
+		- The target filesystem must not exist.
+		- The target pool must exist.
+
+	END
+}
+trap 'usage' err
+
+[[ ${#*} == 2 ]]
+
+SOURCE="$1"; zfs list -H -o name | grep -qx "$SOURCE"
+TARGET="$2"; ! zfs list -H -o name | grep -qx "$TARGET"; [[ $? == 0 ]]
+T_POOL="${TARGET%%/*}"; zpool list -H -o name | grep -qx "$T_POOL"
+
+[[ ${TARGET#$T_POOL} =~ ^/.+$ ]]
+
+function trace {
+	cat <<- END 1>&2
+
+		$(B ERROR): An error occurred on line $1 of ${0##*/}.
+
+	END
+}
+trap 'trace ${LINENO}' err
+
+function add_one_tenth {
+	printf '%d' $(($1+$1/10))
+}
+
+df -k --output=avail /boot | grep -o '^\s*[0-9]\+' | read B_AVAIL
+du -ks "/boot/$MACHINE_ID" | grep -o '^\s*[0-9]\+' | read B_NEEDED
+
+if [[ $B_AVAIL -lt $(add_one_tenth $B_NEEDED) ]]; then
+	cat <<- END
+
+		$(B ERROR): There is not enough space on /boot.
+
+	END
+	exit 1
+fi
+
+zpool list -H -p -o free "$T_POOL" | read T_AVAIL
+zfs list -H -p -o used "$SOURCE" | read T_NEEDED
+
+if [[ $T_AVAIL -lt $(add_one_tenth $T_NEEDED) ]]; then
+	cat <<- END
+
+		$(B ERROR): There is not enough space on $T_POOL.
+
+	END
+	exit 1
+fi
+
+function prompt {
+        ANSWER=''
+        read -e -t 0.125 &> /dev/null || :
+        while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+                printf "$1 [y/n]: "
+                read -r -n 1 ANSWER
+                [[ $ANSWER != '' ]] && printf '\n'
+        done
+}
+
+zfs list -H -d 1 -o name "$SOURCE" | readarray -t DESCENDANTS
+if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
+	cat  <<- END 1>&2
+
+		$(B WARNING): $SOURCE appears to have descendant filesystems. You will
+		have to copy the descendant filesystems manually if you want them trans-
+		ferred. This script will only duplicate the root filesystem.
+
+	END
+	prompt "Do you want to proceed?"
+	[[ $ANSWER == y ]] || exit 1
+	echo
+fi
+
+mktemp -p /tmp -u .oscp.XXX | read FIFO
+mkfifo -m 0600 "$FIFO"
+zfs list -H -o name,canmount,mountpoint > "$FIFO" &
+exec {fifo}<"$FIFO"
+while read -u $fifo n c m; do
+	[[ $c == on ]] || continue
+	[[ $m == / ]] || continue
+	cat <<- END
+
+		$(B WARNING): $n appears to be a root filesystem (mountpoint=/) with
+		its cannmount property set to on. If you want to have multiple root
+		-on-zfs installations on one system, all root filesystems $(B MUST) have
+		their canmount property set to noauto.
+
+	END
+	prompt "Do you want to set $(B canmount=noauto) on $(B $n) now?"
+	[[ $ANSWER == y ]] && zfs set canmount=noauto "$n"
+	echo
+done
+exec {fifo}<&-
+rm "$FIFO"
+
+function random {
+	dd if=/dev/random bs=16 count=1 status=none | basenc --base16
+}
+
+read id < /etc/machine-id
+[[ $id =~ ^[[:xdigit:]]{32}$ ]] || id="$(random)"
+
+# try to keep the boot menu sorted, but fallback to random machine ids
+export id
+while [[ -e "/boot/$id" ]]; do
+	perl -M'Math::BigInt' <<- 'END' 2> /dev/null | read id && :
+		$NUM = Math::BigInt->from_hex($ENV{'id'}) + 1;
+		printf "%032s\n", substr($NUM->as_hex(), 2, 32);
+	END
+	[[ $? == 0 ]] || id="$(random)"
+done
+
+# try not to pollute the mount namespace
+export SOURCE TARGET KIOPS ID="${id,,}"
+UNSHARE="$(type -p unshare)"
+${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || :
+	shopt -s lastpipe
+	mktemp -p /tmp -d .oscp.XXX | read TEMP
+
+	function pv {
+		if type -pf pv &> /dev/null; then
+			s=$(zfs list -H -p -o refer "$SOURCE")
+			command -p pv -s $(($s-$s/20))
+		else
+			cat
+		fi
+	}
+
+	zfs snapshot "$SOURCE@$ID"
+	trap "zfs destroy '$SOURCE@$ID' &> /dev/null" hup int term pipe err exit
+	zfs send --raw "$SOURCE@$ID" | pv \
+		| zfs receive -v -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+	zfs set -u mountpoint=/ "$TARGET"
+
+	systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
+	sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$TEMP/etc/kernel/cmdline"
+
+	rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
+		| sort -r --version-sort | read KVER
+	LIST="boot dev proc sys run"
+	for i in $LIST; do
+		mount -o rbind "/$i" "$TEMP/$i"
+	done
+	echo Creating a new boot menu entry and initramfs image ...
+	chroot "$TEMP" \
+		kernel-install "${KIOPS[@]}" add "$KVER" "/lib/modules/$KVER/vmlinuz"
+	echo -e Finished. Reboot to select and use [1m$(
+		sed -n "s|^title\s*\(.*$TARGET.*\)|\1| p" /boot/loader/entries/*.conf
+	)[22m.
+END

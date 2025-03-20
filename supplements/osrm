@@ -1,0 +1,49 @@
+#!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+set -e
+shopt -s lastpipe
+
+TARGET="$1"
+
+if [[ -z $TARGET ]]; then
+	cat <<- END 1>&2
+
+		USAGE: ${0##*/} <target-filesystem>
+
+	END
+	exit 1
+fi
+
+if [[ $(zfs list -H -o mountpoint "$TARGET" 2> /dev/null) != / ]]; then
+	cat <<- END 1>&2
+
+		ERROR: $TARGET does not appear to be a root filesystem.
+
+	END
+	exit 1
+fi
+
+if [[ $TARGET == $(findmnt -n -o source /) ]]; then
+	cat <<- END 1>&2
+
+		ERROR: You cannot remove the running OS!
+
+	END
+	exit 1
+fi
+
+read SELF < /etc/machine-id
+for conf in /boot/loader/entries/*.conf; do
+	sed -n \
+		-e '\%^machine-id\s% x;' \
+		-e "\%^options\s.*root=zfs:$TARGET\(\s\|$\)% { \
+			x; s/^\S\+\s\+//; T; p; \
+		};" "$conf" | read ID || continue
+	if [[ $ID =~ ^[[:xdigit:]]{32}$ ]] && [[ $ID != $SELF ]]; then
+		rm -rf "/boot/$ID" "$conf"
+	fi
+done
+
+findmnt -n -o target "$TARGET" | xargs -r umount -l
+zfs destroy -R "$TARGET"
