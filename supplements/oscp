@@ -175,4 +175,23 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || :
 	echo -e Finished. Reboot to select and use [1m$(
 		sed -n "s|^title\s*\(.*$TARGET.*\)|\1| p" /boot/loader/entries/*.conf
 	)[22m.
+	echo
 END
+
+CONF='/boot/loader/loader.conf'
+prompt "Set $TARGET as the default boot menu entry?"
+if [[ $ANSWER == y ]]; then
+	sed -i '
+		/^[#[:space:]]*default\s.*$/ {
+			$!d
+		}
+		$ {
+			a default '"$ID"'-*
+			//d
+		}
+	' "$CONF"
+	cat <<- END
+		The default boot menu entry is now $TARGET
+
+	END
+fi

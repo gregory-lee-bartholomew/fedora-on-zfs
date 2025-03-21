@@ -42,6 +42,7 @@ for conf in /boot/loader/entries/*.conf; do
 		};" "$conf" | read ID || continue
 	if [[ $ID =~ ^[[:xdigit:]]{32}$ ]] && [[ $ID != $SELF ]]; then
 		rm -rf "/boot/$ID" "$conf"
+		sed -i "s/$ID/$SELF/" /boot/loader/loader.conf || :
 	fi
 done
 
