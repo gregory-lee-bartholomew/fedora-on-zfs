@@ -157,10 +157,14 @@ set -- "${ARGV[@]}" "$@"
 if [[ $1 =~ ^[0-9]+$ ]]; then
 	RV="$1"; shift
 else
-	RV=$(
-		curl -sf 'https://fedoraproject.org/releases.json' \
-			| jq '.[0].version | tonumber - 1'
-	)
+	curl -sf 'https://fedoraproject.org/releases.json' | jq '
+		.[]
+		| select(.arch == "'"$ARCH"'")
+		| select(.variant | test("everything"; "i"))
+		| select(.version | test("beta"; "i") | not)
+		| .version
+		| tonumber - 1
+	' | read RV
 fi
 
 if [[ $RV -le 0 ]]; then
