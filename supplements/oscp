@@ -178,6 +178,11 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || :
 	echo
 END
 
+LI='/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f'
+if ! [[ -e $LI ]] || ! tr -d '\0' < "$LI" | grep -q 'systemd-boot'; then
+	exit 0
+fi
+
 CONF='/boot/loader/loader.conf'
 prompt "Set $TARGET as the default boot menu entry?"
 if [[ $ANSWER == y ]]; then
