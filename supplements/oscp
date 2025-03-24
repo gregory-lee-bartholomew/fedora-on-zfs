@@ -140,8 +140,8 @@ done
 
 # try not to pollute the mount namespace
 export SOURCE TARGET KIOPS ID="${id,,}"
-UNSHARE="$(type -p unshare)"
-${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || :
+UNSHARE="$(type -p unshare || :)"
+${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || exit 1
 	shopt -s lastpipe
 	mktemp -p /tmp -d .oscp.XXX | read TEMP
 
