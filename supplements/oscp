@@ -155,7 +155,7 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || exit 1
 	}
 
 	zfs snapshot "$SOURCE@$ID"
-	trap "zfs destroy '$SOURCE@$ID' &> /dev/null" hup int term pipe err exit
+	trap "zfs destroy '$SOURCE@$ID' &> /dev/null" exit
 	zfs send --raw "$SOURCE@$ID" | pv \
 		| zfs receive -v -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
 	zfs destroy "$TARGET@$ID"
