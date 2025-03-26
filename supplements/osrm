@@ -6,10 +6,14 @@ shopt -s lastpipe
 
 TARGET="$1"
 
+function B {
+	printf -- '[1m%s[22m' "$*"
+}
+
 if [[ -z $TARGET ]]; then
 	cat <<- END 1>&2
 
-		USAGE: ${0##*/} <target-filesystem>
+		$(B USAGE): ${0##*/} <target-filesystem>
 
 	END
 	exit 1
@@ -18,7 +22,7 @@ fi
 if [[ $(zfs list -H -o mountpoint "$TARGET" 2> /dev/null) != / ]]; then
 	cat <<- END 1>&2
 
-		ERROR: $TARGET does not appear to be a root filesystem.
+		$(B ERROR): $TARGET does not appear to be a root filesystem.
 
 	END
 	exit 1
@@ -27,7 +31,7 @@ fi
 if [[ $TARGET == $(findmnt -n -o source /) ]]; then
 	cat <<- END 1>&2
 
-		ERROR: You cannot remove the running OS!
+		$(B ERROR): You cannot remove the running OS!
 
 	END
 	exit 1
@@ -50,7 +54,7 @@ function prompt {
 if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
 	cat  <<- END 1>&2
 
-		WARNING: $TARGET appears to have descendant filesystems or
+		$(B WARNING): $TARGET appears to have descendant filesystems or
 		clones. All decendants will be destroyed!
 
 	END
