@@ -158,6 +158,7 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || exit 1
 	trap "zfs destroy '$SOURCE@$ID' &> /dev/null" hup int term pipe err exit
 	zfs send --raw "$SOURCE@$ID" | pv \
 		| zfs receive -v -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+	zfs destroy "$TARGET@$ID"
 	zfs set -u mountpoint=/ "$TARGET"
 
 	systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
