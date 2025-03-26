@@ -33,6 +33,32 @@ if [[ $TARGET == $(findmnt -n -o source /) ]]; then
 	exit 1
 fi
 
+function prompt {
+        ANSWER=''
+        read -e -t 0.125 &> /dev/null || :
+        while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+                printf "$1 [y/n]: "
+                read -r -n 1 ANSWER
+                [[ $ANSWER != '' ]] && printf '\n'
+        done
+}
+
+{
+	zfs list -H -d 1 -o name "$TARGET"
+	zfs list -H -r -o origin "${TARGET%%/*}" | grep "^$TARGET@"
+} | readarray -t DESCENDANTS
+if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
+	cat  <<- END 1>&2
+
+		WARNING: $TARGET appears to have descendant filesystems or
+		clones. All decendants will be destroyed!
+
+	END
+	prompt "Do you want to proceed?"
+	[[ $ANSWER == y ]] || exit 1
+	echo
+fi
+
 read SELF < /etc/machine-id
 for conf in /boot/loader/entries/*.conf; do
 	sed -n \
