@@ -164,13 +164,14 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || exit 1
 	systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
 	sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$TEMP/etc/kernel/cmdline"
 
-	rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
-		| sort -r --version-sort | read KVER
 	LIST="boot dev proc sys run tmp"
 	for i in $LIST; do
 		mount -o rbind "/$i" "$TEMP/$i"
 	done
 	echo Creating a new boot menu entry and initramfs image ...
+	chroot "$TEMP" \
+		rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
+			| sort -r --version-sort | read KVER
 	chroot "$TEMP" \
 		kernel-install "${KIOPS[@]}" add "$KVER" "/lib/modules/$KVER/vmlinuz"
 	echo -e Finished. Reboot to select and use [1m$(
