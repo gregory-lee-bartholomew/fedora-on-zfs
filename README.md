@@ -38,6 +38,42 @@ This script will also configure the installed system to *exclude* ZFS and the Li
 
 **Note**: Network connectivity problems have been reported when attempting to run this script from within VirtualBox with virtualbox-guest-additions installed. The open issue report can be found [here](https://github.com/gregory-lee-bartholomew/fedora-on-zfs/issues/2) and if anyone knows how to resolve the problem, I welcome your feedback. 🙂
 
+# Helper Scripts (`oscp` and `osrm`)
+
+This installer now provides two additional helper scripts to simplify replicating your root filesystem (i.e. your operating system). The scripts expect the entire OS (not counting user data like /home/linus) to be under one dataset which is the default configuration for this installer script. These helper scripts cannot handle replicating the OS if you have customized the installation to split subdirectories like /var out into separate datasets.
+
+Invoking the `oscp` and `osrm` scripts is straight forward.
+
+Use the following (substituting your desired source and destination filesystems) to duplicate an OS installation.
+
+    $ sudo -i
+    # oscp root/0 root/1
+    # exit
+
+Use the following (substituting the desired filesystem name) to delete an OS installation.
+
+    $ sudo -i
+    # osrm root/1
+    # exit
+
+These helper scripts are written in Bash and they are saved under /usr/local/bin.
+
+I recommend creating separate user accounts for the separate OS installations if you will be using any of the large desktop environments such as GNOME or KDE. The following commands demonstrate how to add a user to a fedora-on-zfs installation.
+
+    $ sudo -i
+    # USERNAME='linus'
+    # zfs create -o mountpoint=/home/$USERNAME root/$USERNAME
+    # chmod 0700 /home/$USERNAME
+    # shopt -s dotglob
+    # cp -v -a /etc/skel/* /home/$USERNAME
+    # shopt -u dotglob
+    # useradd --home-dir /home/$USERNAME --no-create-home $USERNAME
+    # chown -R $USERNAME: /home/$USERNAME
+    # passwd $USERNAME
+    # exit
+
+If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/homelock) and you want the new user's home directory encrypted, you can include `-o encryption=on`, `-o keylocation=prompt`, and `-o keyformat=passphrase` when running the `zfs create` command. Be sure to use the same password for the ZFS filesystem and the user account. Then update /etc/security/homelock.conf and add the new username to the `USERS` list.
+
 # Demo (installation)
 
 [Installation Demo (SVG 1.8MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/install-demo.svg)
