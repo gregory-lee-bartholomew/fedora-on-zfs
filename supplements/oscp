@@ -175,7 +175,7 @@ ${UNSHARE:+$UNSHARE -m} bash -e <<- 'END' || exit 1
 	chroot "$TEMP" \
 		kernel-install "${KIOPS[@]}" add "$KVER" "/lib/modules/$KVER/vmlinuz"
 	echo -e Finished. Reboot to select and use [1m$(
-		sed -n "s|^title\s*\(.*$TARGET.*\)|\1| p" /boot/loader/entries/*.conf
+		sed -n "s|^title\s*\(.*\)|\1| p" /boot/loader/entries/$ID-*.conf
 	)[22m.
 	echo
 END
