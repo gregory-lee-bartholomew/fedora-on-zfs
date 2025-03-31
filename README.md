@@ -77,7 +77,7 @@ I recommend creating separate user accounts for the separate OS installations if
     # passwd $USERNAME
     # exit
 
-If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/homelock) and you want the new user's home directory encrypted, you can replace `-o mountpoint=legacy` with `-o mountpoint=/home/$USERNAME`, `-o encryption=on`, `-o keylocation=prompt`, and `-o keyformat=passphrase` when running the `zfs create` command. Be sure to use the same password for the ZFS filesystem and the user account. Then update /etc/security/homelock.conf and add the new username to the `USERS` list.
+If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/homelock) and you want the new user's home directory encrypted, you can replace `-o mountpoint=legacy` with `-o mountpoint=/home/$USERNAME`, `-o encryption=on`, `-o keylocation=prompt`, and `-o keyformat=passphrase` when running the `zfs create` command. Be sure to use the same password for the ZFS filesystem and the user account. Then update /etc/security/homelock.conf and add the new username to the `USERS` list. You will also need to skip the four commands following `zfs create` if you set the non-legacy mountpoint. (Do not skip the `chmod` command.)
 
 # Demo (installation)
 
