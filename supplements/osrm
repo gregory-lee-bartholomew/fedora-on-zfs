@@ -64,16 +64,18 @@ if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
 fi
 
 read SELF < /etc/machine-id
-for conf in /boot/loader/entries/*.conf; do
-	sed -n \
-		-e '\%^machine-id\s% x;' \
-		-e "\%^options\s.*root=zfs:$TARGET\(\s\|$\)% { \
-			x; s/^\S\+\s\+//; T; p; \
-		};" "$conf" | read ID || continue
-	if [[ $ID =~ ^[[:xdigit:]]{32}$ ]] && [[ $ID != $SELF ]]; then
-		rm -rf "/boot/$ID" "$conf"
-		sed -i "s/$ID/$SELF/" /boot/loader/loader.conf || :
-	fi
+for boot in /boot /boot@[a-z]; do
+	for conf in $boot/loader/entries/*.conf; do
+		sed -n \
+			-e '\%^machine-id\s% x;' \
+			-e "\%^options\s.*root=zfs:$TARGET\(\s\|$\)% { \
+				x; s/^\S\+\s\+//; T; p; \
+			};" "$conf" | read ID || continue
+		if [[ $ID =~ ^[[:xdigit:]]{32}$ ]] && [[ $ID != $SELF ]]; then
+			rm -rf "$boot/$ID" "$conf"
+			sed -i "s/$ID/$SELF/" "$boot/loader/loader.conf" || :
+		fi
+	done
 done
 
 findmnt -n -o target "$TARGET" | xargs -r umount -l
