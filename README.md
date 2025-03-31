@@ -62,7 +62,11 @@ I recommend creating separate user accounts for the separate OS installations if
 
     $ sudo -i
     # USERNAME='linus'
-    # zfs create -o mountpoint=/home/$USERNAME root/$USERNAME
+    # zfs create -o mountpoint=legacy root/$USERNAME
+    # sed -i "$ a root/$USERNAME /home/$USERNAME zfs defaults 0 0" /etc/fstab
+    # systemctl daemon-reload
+    # mkdir /home/$USERNAME
+    # mount /home/$USERNAME
     # chmod 0700 /home/$USERNAME
     # shopt -s dotglob
     # cp -v -a /etc/skel/* /home/$USERNAME
@@ -73,7 +77,7 @@ I recommend creating separate user accounts for the separate OS installations if
     # passwd $USERNAME
     # exit
 
-If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/homelock) and you want the new user's home directory encrypted, you can include `-o encryption=on`, `-o keylocation=prompt`, and `-o keyformat=passphrase` when running the `zfs create` command. Be sure to use the same password for the ZFS filesystem and the user account. Then update /etc/security/homelock.conf and add the new username to the `USERS` list.
+If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/homelock) and you want the new user's home directory encrypted, you can replace `-o mountpoint=legacy` with `-o mountpoint=/home/$USERNAME`, `-o encryption=on`, `-o keylocation=prompt`, and `-o keyformat=passphrase` when running the `zfs create` command. Be sure to use the same password for the ZFS filesystem and the user account. Then update /etc/security/homelock.conf and add the new username to the `USERS` list.
 
 # Demo (installation)
 
