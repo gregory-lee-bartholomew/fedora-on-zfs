@@ -247,6 +247,7 @@ zfs send --raw "$SOURCE@$ID" | pv \
 zfs destroy "$TARGET@$ID"
 zfs set -u mountpoint=/ "$TARGET"
 
+cp /etc/hostid "$TEMP/etc"
 systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
 
 sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$TEMP/etc/kernel/cmdline"
