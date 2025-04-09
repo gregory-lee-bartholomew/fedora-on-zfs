@@ -6,12 +6,23 @@ shopt -s lastpipe
 
 TARGET="$1"
 
+# bold
 function B {
 	printf -- '[1m%s[22m' "$*"
 }
 
+# wrap lines
+type -p fmt | read FORMAT || :
+function FMT {
+	if [[ -n $FORMAT ]]; then
+		$FORMAT --width="${COLUMNS:-80}"
+	else
+		cat
+	fi
+}
+
 if [[ -z $TARGET ]]; then
-	cat <<- END 1>&2
+	FMT <<- END 1>&2
 
 		$(B USAGE): ${0##*/} <target-filesystem>
 
@@ -20,7 +31,7 @@ if [[ -z $TARGET ]]; then
 fi
 
 if [[ $(zfs list -H -o mountpoint "$TARGET" 2> /dev/null) != / ]]; then
-	cat <<- END 1>&2
+	FMT <<- END 1>&2
 
 		$(B ERROR): $TARGET does not appear to be a root filesystem.
 
@@ -29,7 +40,7 @@ if [[ $(zfs list -H -o mountpoint "$TARGET" 2> /dev/null) != / ]]; then
 fi
 
 if [[ $TARGET == $(findmnt -n -o source /) ]]; then
-	cat <<- END 1>&2
+	FMT <<- END 1>&2
 
 		$(B ERROR): You cannot remove the running OS!
 
@@ -38,13 +49,14 @@ if [[ $TARGET == $(findmnt -n -o source /) ]]; then
 fi
 
 function prompt {
-        ANSWER=''
-        read -e -t 0.125 &> /dev/null || :
-        while ! [[ $ANSWER =~ ^[yn]$ ]]; do
-                printf "$1 [y/n]: "
-                read -r -n 1 ANSWER
-                [[ $ANSWER != '' ]] && printf '\n'
-        done
+	ANSWER=''
+	read -e -t 0.125 &> /dev/null || :
+	local IFS=''
+	while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+		printf "$* [y/n]: "
+		read -r -n 1 ANSWER
+		[[ $ANSWER != '' ]] && printf '\n'
+	done
 }
 
 {
@@ -52,7 +64,7 @@ function prompt {
 	zfs list -H -r -o origin "${TARGET%%/*}" | grep "^$TARGET@"
 } | readarray -t DESCENDANTS
 if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
-	cat  <<- END 1>&2
+	FMT <<- END
 
 		$(B WARNING): $TARGET appears to have descendant filesystems or
 		clones. All decendants will be destroyed!
@@ -63,17 +75,17 @@ if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
 	echo
 fi
 
-read SELF < /etc/machine-id
-for boot in /boot /boot@[a-z]; do
+read MID < /etc/machine-id
+for boot in /boot $(ls -d /boot@[a-z] 2> /dev/null); do
 	for conf in $boot/loader/entries/*.conf; do
 		sed -n \
 			-e '\%^machine-id\s% x;' \
 			-e "\%^options\s.*root=zfs:$TARGET\(\s\|$\)% { \
 				x; s/^\S\+\s\+//; T; p; \
-			};" "$conf" | read ID || continue
-		if [[ $ID =~ ^[[:xdigit:]]{32}$ ]] && [[ $ID != $SELF ]]; then
-			rm -rf "$boot/$ID" "$conf"
-			sed -i "s/$ID/$SELF/" "$boot/loader/loader.conf" || :
+			};" "$conf" | read id || continue
+		if [[ $id =~ ^[[:xdigit:]]{32}$ ]] && [[ $id != $MID ]]; then
+			rm -rf "$boot/$id" "$conf"
+			sed -i "s/$id/$MID/" "$boot/loader/loader.conf" || :
 		fi
 	done
 done
