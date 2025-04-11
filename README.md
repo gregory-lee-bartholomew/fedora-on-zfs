@@ -149,7 +149,7 @@ Below is an example that demonstrates how to run `osrc` from a Fedora Live image
 # wipefs --all ${DRIVES[@]/*/&*} 1> /dev/null
 # dnf install -y gdisk
 # POOL='root'
-# for i in $(seq 0 $((${#DRIVES[@]}-1))); do sgdisk -n 0:0:+4GiB -t 0:ef00 -n 0:0:0 -t 0:8304 -c 0:"$(printf "$POOL@\x$(printf '%x' $((97+$i)))")" -p "${DRIVES[$i]}"; echo; done
+# for i in $(seq 0 $((${#DRIVES[@]}-1))); do sgdisk -Z -n 0:0:+4GiB -t 0:ef00 -n 0:0:0 -t 0:8304 -c 0:"$(printf "$POOL@\x$(printf '%x' $((97+$i)))")" -p "${DRIVES[$i]}"; echo; done
 ```
 
 3. Create a new ZFS root pool on the root@a and root@b partitions that you created in the previous step.
