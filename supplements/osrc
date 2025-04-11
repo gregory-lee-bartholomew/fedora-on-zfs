@@ -260,7 +260,18 @@ function validate_esp {
 		printf "A BLS Type 1 boot loader was not detected on ${dev:-$esp}\n"
 		prompt "Install systemd-boot on ${dev:-$esp}?"
 		if [[ $ANSWER == y ]]; then
+			if ! [[ -e /usr/lib/systemd/boot/efi ]]; then
+				echo
+				printf "The systemd-boot-unsigned package is not available.\n"
+				prompt "Install the systemd-boot-unsigned package now?"
+				[[ $ANSWER == y ]] && dnf -q -y install systemd-boot-unsigned
+				echo
+			fi
 			bootctl install --no-variables --esp-path="$esp" &> /dev/null
+			if [[ $? != 0 ]]; then
+				REASON="Failed to install systemd-boot on ${dev:-$esp}."
+				return 1
+			fi
 			NEW_ESPS+=("$esp")
 			echo
 		else
