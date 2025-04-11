@@ -519,6 +519,13 @@ while [[ ${#NEW_ESPS[@]} -gt 0 ]]; do
 
 	END
 
+	[[ $ANSWER == '' ]] && FMT <<- END
+		$(B TIP): You can run $(B efibootmgr -b XXXX -B) immediately after this
+		script terminates to remove old or duplicate entries from your BIOS boot
+		device list.
+
+	END
+
 	SDBOOT="SD-BOOT ${BASH_REMATCH[1]^^}"
 	LOADER="/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi"
 	prompt \
