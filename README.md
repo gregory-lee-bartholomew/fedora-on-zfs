@@ -81,6 +81,178 @@ If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/ho
 
 **Caution**: Legacy mounts (`-o mountpoint=legacy`) are recommended for unencrypted home directories when multiple operating systems are installed on one ZFS pool. The legacy option allows the mountpoint to be tied to a specific OS instance by being listed in its /etc/fstab configuration file. Home directories configured with non-legacy mountpoints (and `canmount=on`) will automount on *all* operating system instances. Because the UID → user mapping might not be unique accross all operating system instances, it is possible that a home directory configured to use non-legacy mounting (and without encryption) could allow access by the wrong user.
 
+# Operating System Recover (`osrc`)
+
+The `osrc` script is a variant of the `oscp` script that is designed for use when transferring a Fedora-on-ZFS installation from another PC or when restoring a backup for which the current system (no longer) has valid boot menu entries. The `osrc` script will reset the machine-id of the provided Fedora-on-ZFS installation and generate new boot menu entries for it.
+
+## Transferring a Fedora-on-ZFS installation from one PC to another
+
+Here is an example of how you would use `osrc` to restore an OS snapshot that was transferred from one PC to another.
+
+```
+[root@MACHINE-A ~]# zfs snapshot "root/0@$(date +%F)"
+[root@MACHINE-A ~]# zfs send "root/0@$(date +%F)" | ssh MACHINE-B "zfs receive -v -u -o canmount=noauto -o mountpoint=/ root/1"
+```
+
+```
+[root@MACHINE-B ~]# osrc root/1
+```
+
+The `osrc` script will work when transferring a Fedora-on-ZFS installation from a legacy BIOS system to a newer UEFI system or vice versa, but a few extra steps are required to fix the `bootsync` service after booting the restored system for the first time.
+
+When transferring an OS instance from a legacy BIOS system to a UEFI system, the following commands will be required to fix-up the `bootsync` service.
+
+```
+[root@MACHINE-B ~]# sed -i '/\s\/boot\s/ d' /etc/fstab
+[root@MACHINE-B ~]# systemctl enable bootbind.service
+```
+
+When transferring an OS instance from a UEFI system to a legacy BIOS system, the following commands will be required to fix-up the `bootsync` service.
+
+```
+[root@MACHINE-B ~]# systemctl disable bootbind.service
+[root@MACHINE-B ~]# echo '/boot@a /boot none bind,x-systemd.before=bootsync.service,nofail 0 0' >> /etc/fstab
+```
+
+## Restoring a backup Fedora-on-ZFS installation
+
+The `osrc` script can also be used to restore a Fedora-on-ZFS backup filesystem image to a new computer with blank SSDs. You would need to boot a Fedora Linux Live image, install ZFS, manually partition the SSDs, manually create a ZFS root pool, transfer your backup to the new root pool, mount the restored filesystem and grab a copy of the osrc script, then call the `osrc` script and provide it the name of the to-be-recovered Fedora-on-ZFS root filesystem and the device node paths to the blank EFI System Partitions created earlier.
+
+The `osrc` script will label and format the EFI System Partitions and then it will install systemd-boot on them.
+
+The `osrc` script is not capable of restoring a Syslinux boot loader for legacy boot. To restore a legacy boot system, you would have to run the full fedora-on-zfs installation script, boot the newly-installed system and then use `osrc` to restore the backup.
+
+Below is an example that demonstrates how to run `osrc` from a Fedora Live image and use it to restore a Fedora-on-ZFS backup filesystem image on a new PC with blank SSDs.
+
+1. Once you've booted the Live image, follow the instructions at [OpenZFS -- Getting Started -- Fedora](https://openzfs.github.io/openzfs-docs/Getting%20Started/Fedora/index.html) to install ZFS. The instructions are repeated below for convenience, but the version below might be out of date.
+
+```
+# mount -o remount,size=3G /run
+# rpm -e --nodeps zfs-fuse
+# dnf install -y https://zfsonlinux.org/fedora/zfs-release-2-6$(rpm --eval "%{dist}").noarch.rpm
+# dnf install -y kernel-devel-$(uname -r | awk -F'-' '{print $1}')
+# dnf install -y zfs
+# modprobe zfs
+```
+
+2. Partition the new SSDs.
+
+**WARNING**: The `wipefs` command below will instantly destroy *all* data on the drives.
+
+**TIP**: Connect your backup drive *after* you have run the following commands. 😉
+
+**NOTE**: You'll need to substitute the `X` and `Y` in the below `DRIVES=...` line with the paths to the drives you want to erase as listed in the output of the `lsblk` command.
+
+```
+# lsblk --nodeps --paths -o name,size,model
+# DRIVES=('/dev/sdX' '/dev/sdY')
+# wipefs --all ${DRIVES[@]/*/&*} 1> /dev/null
+# dnf install -y gdisk
+# POOL='root'
+# for i in $(seq 0 $((${#DRIVES[@]}-1))); do sgdisk -n 0:0:+4GiB -t 0:ef00 -n 0:0:0 -t 0:8304 -c 0:"$(printf "$POOL@\x$(printf '%x' $((97+$i)))")" -p "${DRIVES[$i]}"; echo; done
+```
+
+3. Create a new ZFS root pool on the root@a and root@b partitions that you created in the previous step.
+
+```
+# zgenhostid
+# zpool create -f -m none -R /mnt -o ashift=12 -O acltype=posix -O canmount=off -O compression=on -O dnodesize=auto -O relatime=on -O xattr=sa "$POOL" mirror /dev/disk/by-partlabel/"$POOL"@[a-z]
+# zpool list -v
+```
+
+4. Transfer your backup to the new root pool.
+
+```
+# mkdir /tmp/backup
+# mount /dev/disk/by-partlabel/backup /tmp/backup
+# ls /tmp/backup
+root-1@@2025-04-09.zfs
+# cat /tmp/backup/root-1@@2025-04-09.zfs | zfs receive -v -u -o canmount=noauto -o mountpoint=/ "$POOL/0"
+receiving full stream of root/1@2025-04-09 into root/0@2025-04-09
+received 4.26G stream in 28.80 seconds (152M/sec)
+```
+
+\* *The above example assumes your backup is stored on a partition that is labeled "backup". You'll likely need to adjust the `mount` command to match the path to your personal backup device.*
+
+5. Mount the restored ZFS filesystem and grab a copy of the osrc script. Alternatively, you could clone [this](https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git) repo and grab a copy of the `osrc` script from the `supplements` subdirectory.
+
+```
+# zfs mount "$POOL/0"
+# cp /mnt/usr/local/bin/osrc ~
+```
+
+6. Call the `osrc` script.
+
+```
+# zfs unmount "$POOL/0"
+# ~/osrc "$POOL/0" "${DRIVES[@]/*/&1}"
+
+WARNING: This script will generate a new machine id for root/0 and create new boot menu entries on /dev/sdb1 /dev/sdc1.
+
+Do you wish to continue? [y/n]: y
+
+No filesystem detected on /dev/sdb1.
+Format /dev/sdb1 with a VFAT filesystem? [y/n]: y
+mkfs.fat 4.2 (2021-01-31)
+
+A BLS Type 1 boot loader was not detected on /dev/sdb1
+Install systemd-boot on /dev/sdb1? [y/n]: y
+
+The systemd-boot-unsigned package is not available.
+Install the systemd-boot-unsigned package now? [y/n]: y
+Package                                                                 Arch             Version                                                                  Repository                                    Size
+Installing:
+ systemd-boot-unsigned                                                  x86_64           256.12-1.fc41                                                            updates                                  190.6 KiB
+Transaction Summary:
+ Installing:         1 package
+[1/3] Verify package files                                                                                                                                                  100% | 250.0   B/s |   1.0   B |  00m00s
+[2/3] Prepare transaction                                                                                                                                                   100% |   3.0   B/s |   1.0   B |  00m00s
+[3/3] Installing systemd-boot-unsigned-0:256.12-1.fc41.x86_64                                                                                                               100% | 433.9 KiB/s | 191.8 KiB |  00m00s
+
+No filesystem detected on /dev/sdc1.
+Format /dev/sdc1 with a VFAT filesystem? [y/n]: y
+mkfs.fat 4.2 (2021-01-31)
+
+A BLS Type 1 boot loader was not detected on /dev/sdc1
+Install systemd-boot on /dev/sdc1? [y/n]: y
+
+Creating a new boot menu entry and initramfs image on /dev/sdb1 ...
+Entry created. Reboot to select and use Fedora Linux 40 (Forty) (root/0).
+
+Creating a new boot menu entry and initramfs image on /dev/sdc1 ...
+Entry created. Reboot to select and use Fedora Linux 40 (Forty) (root/0).
+
+Current BIOS boot device list:
+BootCurrent: 
+Timeout: 2 seconds
+BootOrder: 
+
+TIP: You can run efibootmgr -b XXXX -B immediately after this script terminates to remove old or duplicate entries from your BIOS boot device list.
+
+Add SD-BOOT B f9569c05-7138-4568-9baf-e3fa15597d60 (/dev/sdc1) /efi/systemd/systemd-bootx64.efi to the list? [y/n]: y
+
+Current BIOS boot device list:
+BootCurrent: 0009
+Timeout: 2 seconds
+BootOrder: 0000
+Boot0000* SD-BOOT B	HD(1,GPT,f9569c05-7138-4568-9baf-e3fa15597d60,0x800,0x800000)/\efi\systemd\systemd-bootx64.efi 
+
+Add SD-BOOT A 8c86655e-cf0e-4dce-8f84-a449d7d3ae6f (/dev/sdb1) /efi/systemd/systemd-bootx64.efi to the list? [y/n]: y
+
+Current BIOS boot device list:
+BootCurrent: 0009
+Timeout: 2 seconds
+BootOrder: 0001,0000
+Boot0000* SD-BOOT B	HD(1,GPT,f9569c05-7138-4568-9baf-e3fa15597d60,0x800,0x800000)/\efi\systemd\systemd-bootx64.efi
+Boot0001* SD-BOOT A	HD(1,GPT,8c86655e-cf0e-4dce-8f84-a449d7d3ae6f,0x800,0x800000)/\efi\systemd\systemd-bootx64.efi 
+
+Set root/0 as the default systemd-boot menu option? [y/n]: y
+The default boot menu entry is now root/0.
+
+# zpool export "$POOL"
+# reboot
+```
+
 # Demo (installation)
 
 [Installation Demo (SVG 1.8MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/install-demo.svg)
