@@ -166,7 +166,7 @@ Below is an example that demonstrates how to run `osrc` from a Fedora Live image
 # mkdir /tmp/backup
 # mount /dev/disk/by-partlabel/backup /tmp/backup
 # ls /tmp/backup
-root-1@@2025-04-09.zfs
+root-1@2025-04-09.zfs
 # cat /tmp/backup/root-1@@2025-04-09.zfs | zfs receive -v -u -o canmount=noauto -o mountpoint=/ "$POOL/0"
 receiving full stream of root/1@2025-04-09 into root/0@2025-04-09
 received 4.26G stream in 28.80 seconds (152M/sec)
