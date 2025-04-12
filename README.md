@@ -63,7 +63,7 @@ I recommend creating separate user accounts for the separate OS installations if
     $ sudo -i
     # USERNAME='linus'
     # zfs create -o mountpoint=legacy root/$USERNAME
-    # sed -i "$ a root/$USERNAME /home/$USERNAME zfs defaults 0 0" /etc/fstab
+    # sed -i "$ a root/$USERNAME /home/$USERNAME zfs nofail 0 0" /etc/fstab
     # systemctl daemon-reload
     # mkdir /home/$USERNAME
     # mount /home/$USERNAME
