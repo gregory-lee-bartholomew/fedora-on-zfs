@@ -335,7 +335,7 @@ while read -u $fifo n c m; do
 	FMT <<- END
 
 		$(B WARNING): $n appears to be a root filesystem (mountpoint=/) with
-		its cannmount property set to on. If you want to have multiple
+		its canmount property set to on. If you want to have multiple
 		root-on-zfs installations on one system, all root filesystems $(B MUST)
 		have their canmount property set to noauto.
 
