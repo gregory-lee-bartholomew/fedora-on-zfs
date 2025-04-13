@@ -1,6 +1,6 @@
-# fedora-on-zfs
+# Fedora-on-ZFS
 
-fedora-on-zfs is a script for automating the installation of Fedora Linux on a ZFS filesystem.
+Fedora-on-ZFS is a script for automating the installation of Fedora Linux on a ZFS filesystem.
 
 This script *requires* at least two physical drives. It will create a mirrored ZFS filesystem pool on the supplied drives and then install Fedora Linux on the new pool (i.e., root on ZFS).
 
@@ -58,7 +58,7 @@ Use the following (substituting the desired filesystem name) to delete an OS ins
 
 These helper scripts are written in Bash and they are saved under /usr/local/bin.
 
-I recommend creating separate user accounts for the separate OS installations if you will be using any of the large desktop environments such as GNOME or KDE. The following commands demonstrate how to add a user to a fedora-on-zfs installation.
+I recommend creating separate user accounts for the separate OS installations if you will be using any of the large desktop environments such as GNOME or KDE. The following commands demonstrate how to add a user to a Fedora-on-ZFS installation.
 
     $ sudo -i
     # USERNAME='linus'
@@ -83,7 +83,7 @@ If you chose to install [homelock](https://github.com/gregory-lee-bartholomew/ho
 
 # Operating System Recover (`osrc`)
 
-The `osrc` script is a variant of the `oscp` script that is designed for use when transferring a Fedora-on-ZFS installation from another PC or when restoring a backup for which the current system (no longer) has valid boot menu entries. The `osrc` script will reset the machine-id of the provided Fedora-on-ZFS installation and generate new boot menu entries for it.
+The `osrc` script is a variant of the `oscp` script that is designed for use when transferring a Fedora-on-ZFS installation from another PC or when restoring a backup for which the current system no longer has valid boot menu entries. The `osrc` script will reset the machine-id of the provided Fedora-on-ZFS installation and generate new boot menu entries for it.
 
 ## Transferring a Fedora-on-ZFS installation from one PC to another
 
@@ -120,7 +120,7 @@ The `osrc` script can also be used to restore a Fedora-on-ZFS backup filesystem 
 
 The `osrc` script will label and format the EFI System Partitions and then it will install systemd-boot on them.
 
-The `osrc` script is not capable of restoring a Syslinux boot loader for legacy boot. To restore a legacy boot system, you would have to run the full fedora-on-zfs installation script, boot the newly-installed system and then use `osrc` to restore the backup.
+The `osrc` script is not capable of restoring a Syslinux boot loader for legacy boot. To restore a legacy boot system, you would have to run the full Fedora-on-ZFS installation script, boot the newly-installed system and then use `osrc` to restore the backup.
 
 Below is an example that demonstrates how to run `osrc` from a Fedora Live image and use it to restore a Fedora-on-ZFS backup filesystem image on a new PC with blank SSDs.
 
