@@ -501,6 +501,15 @@ then
 	exit 0
 fi
 
+if ! type -p efibootmgr | read MANAGER; then
+	echo
+	printf "The efibootmgr command is not available.\n"
+	prompt "Install the efibootmgr package?"
+	[[ $ANSWER == y ]] && dnf -q -y install efibootmgr
+	type -p efibootmgr | read MANAGER
+	echo
+fi
+
 ANSWER=''
 uname -m | read ARCH
 efibootmgr | readarray STATUS
