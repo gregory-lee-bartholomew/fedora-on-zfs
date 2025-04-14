@@ -373,6 +373,7 @@ done
 ID="${id,,}"
 
 mktemp -p "$WORKING" -d temp.XXX | read TEMP
+CLEANUP+=("rmdir '$TEMP'")
 
 zpool get -H -o value altroot "${TARGET%%/*}" | read ALTROOT
 if [[ $ALTROOT == - ]]; then
@@ -380,7 +381,6 @@ if [[ $ALTROOT == - ]]; then
 	CLEANUP+=("zfs set -u mountpoint='/' '$TARGET'")
 fi
 zfs mount "$TARGET"
-CLEANUP+=("rmdir '$TEMP'")
 CLEANUP+=("zfs unmount '$TARGET'; sleep 1")
 if [[ $ALTROOT != - ]]; then
 	mount -o bind "$ALTROOT" "$TEMP"
@@ -449,7 +449,7 @@ for esp in "${VLD_ESPS[@]}"; do
 	CLEANUP+=("umount '$TEMP/boot'")
 
 	dev=''
-	[[ $esp =~ osrc ]] && findmnt -n -f -o 'source' "$esp" | read dev || :
+	[[ $esp == $WORKING/* ]] && findmnt -n -f -o 'source' "$esp" | read dev || :
 	FMT <<- END
 		Creating a new boot menu entry and initramfs image on ${dev:-$esp} ...
 	END
