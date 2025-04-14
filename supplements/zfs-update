@@ -1,3 +1,11 @@
 #!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END 1>&2
+		${0##*/} must be run as root.
+	END
+	exit 1
+fi
 
 command -p dnf --repo=zfs update "$@"

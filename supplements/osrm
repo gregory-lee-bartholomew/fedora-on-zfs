@@ -4,6 +4,15 @@
 set -e
 shopt -s lastpipe
 
+SELF="${0##*/}"
+
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END 1>&2
+		$SELF must be run as root.
+	END
+	exit 1
+fi
+
 TARGET="$1"
 
 # bold
@@ -24,7 +33,7 @@ function FMT {
 if [[ -z $TARGET ]]; then
 	FMT <<- END 1>&2
 
-		$(B USAGE): ${0##*/} <target-filesystem>
+		$(B USAGE): $SELF <target-filesystem>
 
 	END
 	exit 1

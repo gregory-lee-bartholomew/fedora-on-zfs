@@ -7,6 +7,13 @@ shopt -s nocasematch
 
 SELF="${0##*/}"
 
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END 1>&2
+		$SELF must be run as root.
+	END
+	exit 1
+fi
+
 # try not to pollute the mount namespace
 type -p unshare | read UNSHARE || :
 if [[ -n $UNSHARE ]]; then

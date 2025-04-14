@@ -5,6 +5,13 @@ UPDATE=0
 NUMARG=0
 FILTER=()
 
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END 1>&2
+		${0##*/} must be run as root.
+	END
+	exit 1
+fi
+
 if ! [[ $* =~ --installroot ]]; then
 	for arg do
 		[[ ${arg:0:1} == - ]] && continue
