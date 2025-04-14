@@ -3,6 +3,7 @@
 
 set -e
 shopt -s lastpipe
+shopt -s nocasematch
 
 SELF="${0##*/}"
 
@@ -28,7 +29,7 @@ function B {
 type -p fmt | read FORMAT || :
 function FMT {
 	if [[ -n $FORMAT ]]; then
-		$FORMAT --width="${COLUMNS:-80}"
+		sed 's/\s\+/ /g' | $FORMAT --width="${COLUMNS:-80}"
 	else
 		cat
 	fi
@@ -510,9 +511,43 @@ if ! type -p efibootmgr | read MANAGER; then
 	echo
 fi
 
+lsblk -n -o partuuid -Q 'partuuid =~ ".+"' | readarray -t UUIDS
+$MANAGER | readarray -t STATUS
+[[ ${#STATUS[@]} != 0 ]] && cat <<- END
+
+	$(B Current BIOS boot device list):
+	$(printf -- '%s\n' "${STATUS[@]}")
+
+END
+[[ ${#STATUS[@]} != 0 ]] && FMT <<- END
+	$(B TIP): You can run $(B $MANAGER -b XXXX -B) manually after this script
+	terminates to remove old or duplicate entries from your BIOS boot device
+	list.
+
+END
+
 ANSWER=''
+for line in "${STATUS[@]}"; do
+	[[
+		$line =~ ^boot([[:xdigit:]]{4}).*(SD-BOOT [A-Z]).*([-[:xdigit:]]{36})
+	]] || continue
+	ENTRY="${BASH_REMATCH[1]}"
+	LABEL="${BASH_REMATCH[2]}"
+	PUUID="${BASH_REMATCH[3]}"
+
+	[[ ${UUIDS[*]} == *$PUUID* ]] && continue
+
+	FMT <<- END
+		$(B BIOS ENTRY) $ENTRY, $(B LABEL):'$LABEL', $(B PARTUUID):$PUUID
+		appears to be invalid. The UUID does not match any detected partition.
+
+	END
+	prompt "Remove entry $ENTRY '$LABEL' from the BIOS boot device list now?"
+	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B
+done
+
 uname -m | read ARCH
-efibootmgr | readarray STATUS
+$MANAGER | readarray -t STATUS
 while [[ ${#NEW_ESPS[@]} -gt 0 ]]; do
 	findmnt -n -f -o 'source,partuuid,partlabel' "${NEW_ESPS[-1]}" \
 		| read DEVICE UUID LABEL || :
@@ -521,17 +556,10 @@ while [[ ${#NEW_ESPS[@]} -gt 0 ]]; do
 	[[ -n $DEVICE ]] || continue
 	[[ $LABEL =~ ^boot@([a-z])$ ]] || continue
 
-	[[ $ANSWER != n ]] && [[ ${#STATUS[@]} != 0 ]] && cat <<- END
+	[[ $ANSWER == y ]] && [[ ${#STATUS[@]} != 0 ]] && cat <<- END
 
 		$(B Current BIOS boot device list):
-		$(printf -- '%s' "${STATUS[@]}") 
-
-	END
-
-	[[ $ANSWER == '' ]] && FMT <<- END
-		$(B TIP): You can run $(B efibootmgr -b XXXX -B) immediately after this
-		script terminates to remove old or duplicate entries from your BIOS boot
-		device list.
+		$(printf -- '%s\n' "${STATUS[@]}") 
 
 	END
 
@@ -539,31 +567,33 @@ while [[ ${#NEW_ESPS[@]} -gt 0 ]]; do
 	LOADER="/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi"
 	prompt \
 		"\e[s\e[1E\e[2m(Answer no if there is an equivalent entry.)\e[22m\e[u" \
-		"\e[0G\e[KAdd $(B "$SDBOOT $UUID ($DEVICE) $LOADER") to the list?"
+		"\e[0GAdd $(B "$SDBOOT $UUID ($DEVICE) $LOADER") to the list?"
 	printf "\e[0G\e[K"
 	if [[ $ANSWER == y ]]; then
-		efibootmgr -c -d "$DEVICE" -l "$LOADER" -L "$SDBOOT" 2> /dev/null \
-			| readarray STATUS
+		$MANAGER -c -d "$DEVICE" -l "$LOADER" -L "$SDBOOT" 2> /dev/null \
+			| readarray -t STATUS
 		if [[ ${#STATUS[@]} == 0 ]]; then
 			FMT <<- END
 
 				$(B WARNING): An error occured while trying to update the boot
 				device list. You might need to add $DEVICE to your bootable
 				devices list manually. When creating the new entry, you should
-				point to $(B $LOADER)
-				on $(B $DEVICE).
+				point to $(B $LOADER) on $(B $DEVICE).
 
 			END
 		fi
 	fi
 done
-[[ $ANSWER == y ]] && [[ ${#STATUS[@]} != 0 ]] && cat <<- END
+if [[ $ANSWER == y ]] && [[ ${#STATUS[@]} != 0 ]]; then
+	cat <<- END
 
-	$(B Current BIOS boot device list):
-	$(printf -- '%s' "${STATUS[@]}") 
+		$(B Current BIOS boot device list):
+		$(printf -- '%s\n' "${STATUS[@]}") 
 
-END
-echo
+	END
+else
+	echo
+fi
 
 prompt "Set $(B $TARGET) as the default systemd-boot menu option?"
 if [[ $ANSWER == y ]]; then
