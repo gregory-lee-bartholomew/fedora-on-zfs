@@ -1,0 +1,639 @@
+#!/usr/bin/bash
+# vim:set ts=3 sw=3:
+
+set -e
+shopt -s lastpipe
+
+SELF="${0##*/}"
+
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END 1>&2
+		$SELF must be run as root.
+	END
+	exit 1
+fi 
+
+# try not to pollute the mount namespace
+type -p unshare | read UNSHARE || :
+if [[ -n $UNSHARE ]]; then
+	[[ $HIDDEN != $SELF ]] && exec env HIDDEN="$SELF" "$UNSHARE" -m "$0" "$@"
+fi
+
+# bold
+function B {
+	printf -- '[1m%s[22m' "$*"
+}
+
+# wrap lines
+type -p fmt | read FORMAT || : 
+function FMT {
+	if [[ -n $FORMAT ]]; then
+		sed 's/\s\+/ /g' | $FORMAT --width="${COLUMNS:-80}"
+	else
+		cat
+	fi
+}
+
+function usage {
+	cat <<- END 1>&2
+
+		$(B USAGE): $SELF <target-filesystem>
+
+		Example: $SELF root/1
+
+		- The target filesystem must not exist.
+		- The target pool must exist.
+
+	END
+}
+trap 'usage' err
+
+[[ ${#*} -gt 0 ]]
+
+TARGET="$1"; shift; ! zfs list -H -o name | grep -qx "$TARGET"; [[ $? == 0 ]]
+T_POOL="${TARGET%%/*}"; zpool list -H -o name | grep -qx "$T_POOL"
+
+[[ ${TARGET#$T_POOL} =~ ^/.+$ ]]
+
+function trace {
+	FMT <<- END 1>&2
+
+		$(B ERROR): An error occurred on line $1 of $SELF.
+
+	END
+}
+trap 'trace ${LINENO}' err
+
+CLEANUP=()
+function cleanup {
+	set +e
+	while [[ ${#CLEANUP[@]} -gt 0 ]]; do
+		eval ${CLEANUP[-1]} &> /dev/null
+		unset CLEANUP[-1]
+	done
+	if [[ -d "$WORKING" ]]; then
+		[[ $lock =~ ^[0-9]+$ ]] && exec {lock}<&-
+		rm "$WORKING/lock"
+		rmdir "$WORKING" &> /dev/null
+		if [[ $? != 0 ]]; then
+			mv "$WORKING" "$(mktemp -p /tmp -u ".$SELF.XXX")"
+		fi
+	fi
+}
+trap 'cleanup' exit
+
+# try to prevent multiple copies of this command from being run concurrently
+# to avoid the possibility of two os instances receiving the same machine id
+WORKING="/tmp/.$SELF"
+mkdir -p "$WORKING"
+FLOCK="$(type -p flock)"
+if [[ -n $FLOCK ]]; then
+	touch "$WORKING/lock"
+	exec {lock}<>"$WORKING/lock"
+	if ! "$FLOCK" -n "$lock"; then
+		exec {lock}<&-
+		WORKING=''
+		FMT <<- END 1>&2
+
+			$(B ERROR): Another instance of $SELF appears to be running.
+
+		END
+		exit 1
+	fi
+fi
+
+function prompt {
+	ANSWER=''
+	read -e -t 0.125 &> /dev/null || :
+	local IFS=''
+	while ! [[ $ANSWER =~ ^[yn]$ ]]; do
+		printf "$* [y/n]: "
+		read -r -n 1 ANSWER
+		[[ $ANSWER != '' ]] && printf '\n'
+	done
+}
+
+GVN_ESPS=("$@")
+if [[ ${#GVN_ESPS[@]} -eq 0 ]]; then
+	for i in $(ls -d /boot@[a-z] 2> /dev/null); do GVN_ESPS+=("$i"); done
+fi
+[[ ${#GVN_ESPS[@]} -eq 0 ]] && GVN_ESPS=('/boot')
+
+FMT <<- END
+
+	$(B INFO): This script will create a new $(B $TARGET) filesystem with a new
+	minimal Fedora Linux installation and add new boot menu entries for it on
+	$(B "${GVN_ESPS[*]}").
+
+END
+prompt "Do you wish to continue?"
+[[ $ANSWER == y ]] || exit 0
+echo
+
+lsblk -n -o partlabel -x partlabel -Q 'PARTLABEL =~ "^boot@[a-z]$"' \
+	| readarray -t LABELS
+
+# be sure to call this function in a subshell to avoid
+# redefining the caller's err trap
+function label {
+	set -e
+
+	trap 'printf "%s\n" "${LABELS[@]}"' err
+
+	[[ -b $1 ]]
+
+	[[ $1 =~ ([0-9]+)$ ]]; p="${BASH_REMATCH[1]}"; d="${1%$p}"
+
+	n='0'
+	next=''
+	labels=()
+	letters=({a..z})
+	for l in "${LABELS[@]}"; do
+		if [[ $l != boot@${letters[$n]} ]] && [[ -z $next ]]; then
+			next="boot@${letters[$n]}"
+			labels+=("$next")
+		fi
+		labels+=("$l")
+		n="$(($n+1))"
+	done
+	if [[ -z $next ]] && [[ -n ${letters[$n]} ]]; then
+		next="boot@${letters[$n]}"
+		labels+=("$next")
+	fi
+
+	[[ $next =~ ^boot@[a-z]$ ]]
+
+	(
+		sgdisk -c "$p:$next" "$d" ||
+		parted "$d" name "$p" "$next"
+	) &> /dev/null
+
+	printf '%s\n' "${labels[@]}"
+}
+
+# you can use "sgdisk -t N:ef00 /dev/sdX" to set a partition's GUID to the
+# correct value for EFI System Partitions. (substitute X with the correct
+# drive letter and N with the partition number.)
+ESP_GUID='c12a7328-f81f-11d2-ba4b-00a0c93ec93b'
+function validate_esp {
+	if ! [[ -e $esp ]]; then
+		REASON="File $esp not found."
+		return 1
+	fi
+
+	if [[ -b $esp ]]; then
+		GUID="$(blkid --probe -s PART_ENTRY_TYPE -o value "$esp")"
+		if [[ $GUID != $ESP_GUID ]]; then
+			REASON="$esp is not a partition or its guid is not correct."
+			return 1
+		fi
+
+		TYPE="$(blkid --probe -s TYPE -o value "$esp")"
+		if [[ -z $TYPE ]]; then
+			printf "No filesystem detected on $esp.\n"
+			prompt "Format $esp with a VFAT filesystem?"
+			[[ $ANSWER == y ]] && mkfs.vfat "$esp" && TYPE='vfat'
+			echo
+		fi
+		if ! [[ $TYPE =~ ^v?fat ]]; then
+			REASON="$esp is not formatted with a (v)fat filesystem."
+			return 1
+		fi
+
+		MP="$(findmnt -n -f -d 'backward' -o 'target' "$esp")"
+		if [[ -z $MP ]]; then
+			mktemp -p "$WORKING" -d esp.XXX | read MP
+			CLEANUP+=("rmdir $MP")
+			mount "$esp" "$MP"
+			CLEANUP+=("umount '$esp'")
+		else
+			CLEANUP+=("sync -f '$MP'")
+		fi
+		
+		dev="$esp"
+		esp="$MP"
+	fi
+
+	if ! [[ -d $esp ]] || ! mountpoint -q "$esp"; then
+		return 1
+	fi
+
+	if ! findmnt -n -f -o 'fstype' "$esp" | grep -q '^v\?fat'; then
+		REASON="$esp is not formatted with a (v)fat filesystem."
+		return 1
+	fi
+
+	if ! [[ -d $esp/loader ]]; then
+		printf "A BLS Type 1 boot loader was not detected on ${dev:-$esp}\n"
+		prompt "Install systemd-boot on ${dev:-$esp}?"
+		if [[ $ANSWER == y ]]; then
+			if ! [[ -e /usr/lib/systemd/boot/efi ]]; then
+				echo
+				printf "The systemd-boot-unsigned package is not available.\n"
+				prompt "Install the systemd-boot-unsigned package now?"
+				[[ $ANSWER == y ]] && dnf -q -y install systemd-boot-unsigned
+				echo
+			fi
+			bootctl install --no-variables --esp-path="$esp" &> /dev/null
+			if [[ $? != 0 ]]; then
+				REASON="Failed to install systemd-boot on ${dev:-$esp}."
+				return 1
+			fi
+			NEW_ESPS+=("$esp")
+			echo
+		else
+			REASON="${dev:-$esp} does not contain a BLS Type 1 boot loader."
+			return 1
+		fi
+	fi
+
+	findmnt -n -f -o 'source,partlabel' "$esp" | read SOURCE LABEL
+	if ! [[ $LABEL =~ ^boot@[a-z]$ ]]; then
+		BEFORE="${#LABELS[@]}"
+		if [[ -z $LABEL ]] || ! grep -q "PARTLABEL=$LABEL\s" /etc/fstab; then
+			(label "$SOURCE") | readarray -t LABELS
+		else
+			FMT <<- END
+
+				$(B WARNING): Refusing to update partlabel on ${dev:-$esp}
+				due to reference found in /etc/fstab.
+			END
+		fi
+		if ! [[ ${#LABELS} -gt ${#BEFORE} ]]; then
+			FMT <<- END
+
+				$(B WARNING): Failed to set partition label on ${dev:-$esp}.
+				You might need to add ${dev:-$esp} to /etc/fstab manually.
+
+			END
+		fi
+	fi
+
+	return 0
+}
+
+VLD_ESPS=()
+NEW_ESPS=()
+for esp in "${GVN_ESPS[@]}"; do
+	dev=''
+	REASON=''
+	# validate_esp() will add $esp to NEW_ESPS if it installs systemd-boot
+	if validate_esp "$esp"; then
+		VLD_ESPS+=("$esp")
+	else
+		[[ -n $REASON ]] && REASON+=$'\n'
+		FMT <<- END 1>&2
+
+			$(B ERROR): ${dev:-$esp} is not a valid ESP.
+			$REASON
+		END
+		exit 1
+	fi
+done
+
+mktemp -p "$WORKING" -u fifo.XXX | read FIFO
+mkfifo -m 0600 "$FIFO"
+CLEANUP+=("rm '$FIFO'")
+zfs list -H -o name,canmount,mountpoint > "$FIFO" &
+exec {fifo}<"$FIFO"
+while read -u $fifo n c m; do
+	[[ $c == on ]] || continue
+	[[ $m == / ]] || continue
+	FMT <<- END
+
+		$(B WARNING): $n appears to be a root filesystem (mountpoint=/) with
+		its canmount property set to on. If you want to have multiple
+		root-on-zfs installations on one system, all root filesystems $(B MUST)
+		have their canmount property set to noauto.
+
+	END
+	prompt "Do you want to set $(B canmount=noauto) on $(B $n) now?"
+	[[ $ANSWER == y ]] && zfs set canmount=noauto "$n"
+	echo
+done
+exec {fifo}<&-
+
+function random {
+	dd if=/dev/random bs=16 count=1 status=none | basenc --base16
+}
+
+read id < /etc/machine-id
+[[ $id =~ ^[[:xdigit:]]{32}$ ]] || { random | read id; }
+
+# try to keep the boot menu sorted, but fallback to random machine ids
+function exists {
+	[[ $1 == $(</etc/machine-id) ]] && return 0
+	for i in "${VLD_ESPS[@]}"; do
+		[[ -e $i/$1 ]] && return 0
+	done
+	return 1
+}
+while exists "$id"; do
+	export id
+	perl -M'Math::BigInt' <<- 'END' 2> /dev/null | read id && :
+		$NUM = Math::BigInt->from_hex($ENV{'id'}) + 1;
+		printf "%032s\n", substr($NUM->as_hex(), 2, 32);
+	END
+	[[ $? == 0 ]] || { random | read id; }
+done
+ID="${id,,}"
+
+mktemp -p "$WORKING" -d temp.XXX | read TEMP
+CLEANUP+=("rmdir '$TEMP'")
+
+zfs create -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+zfs mount "$TARGET"
+CLEANUP+=("zfs unmount '$TARGET'")
+zfs set -u mountpoint=/ "$TARGET"
+
+mountpoint -q "$TEMP"
+
+LIST="dev proc sys run"
+for i in $LIST; do
+	mount -o X-mount.mkdir=755 --rbind "/$i" "$TEMP/$i"
+	mount --make-rslave "$TEMP/$i"
+	CLEANUP+=("umount -R '$TEMP/$i'")
+done
+mount -o X-mount.mkdir=755 --bind "/tmp" "$TEMP/tmp"
+CLEANUP+=("umount '$TEMP/tmp'")
+
+DNFARGS=('-y' "--installroot=$TEMP" '--repo=fedora')
+DNFARGS+=('--exclude=dracut-config-rescue')
+DNFARGS+=('--exclude=zfs-fuse')
+DNFARGS+=('--exclude=avahi')
+if readlink /usr/bin/dnf | grep -q 'dnf-3'; then
+	DNFARGS+=("$(sed -n 's/^VERSION_ID=/--releasever=/ p' /etc/os-release)")
+else
+	DNFARGS+=('--use-host-config')
+fi
+dnf "${DNFARGS[@]}" group install core
+
+cp /etc/hostid "$TEMP/etc"
+systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
+chroot "$TEMP" fixfiles -F onboot || :
+echo
+
+FILE="$TEMP/etc/kernel/cmdline"
+mkdir -p "${FILE%/*}"
+cp /etc/kernel/cmdline "$FILE"
+sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$FILE"
+
+FILE="$TEMP/etc/kernel/install.conf"
+[[ -s $FILE ]] || echo > "$FILE"
+sed -i '
+	1 i layout=bls
+	1 i BOOT_ROOT=/boot
+	/^[#[:space:]]*layout=.*$/ d
+	/^[#[:space:]]*BOOT_ROOT=.*$/ d
+' "$FILE"
+
+FILE="$TEMP/etc/kernel/install.d/91-loaderentry-update-title.install"
+mkdir -p "${FILE%/*}"
+if ! [[ -e $FILE ]]; then
+	sed 's/ \{3\}/\t/g' <<- 'END' > "$FILE"
+		#!/usr/bin/sh
+
+		set -e
+
+		trap 'exit 0' exit
+
+		COMMAND="${1:?}"
+		KERNEL_VERSION="${2:?}"
+
+		[ "$COMMAND" = "add" ]
+		[ "$KERNEL_INSTALL_LAYOUT" = "bls" ]
+
+		ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+		BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+		LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+		ROOTFS=''
+		for option in $(grep '^options\s' "$LOADER_ENTRY"); do
+		   ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+		done
+
+		[ -n "$ROOTFS" ]
+
+		sed -i -e '/^title\s/ { \| ('"$ROOTFS"')$|! s|$| ('"$ROOTFS"')|; }' \
+		   "$LOADER_ENTRY"
+	END
+	chmod +x "$FILE"
+fi
+
+for esp in "${VLD_ESPS[@]}"; do
+	mount -o bind "$esp" "$TEMP/boot"
+	CLEANUP+=("umount '$TEMP/boot'")
+
+	FMT <<- END
+		Creating a new boot menu entry and initramfs image on $esp ...
+	END
+	if [[ $esp == ${VLD_ESPS[0]} ]]; then
+		dnf "${DNFARGS[@]}" install https://zfsonlinux.org/fedora/$(
+			rpm -qf /etc/yum.repos.d/zfs.repo
+		).rpm
+		DNFARGS+=('--repo=zfs')
+		dnf "${DNFARGS[@]}" install \
+			systemd-boot-unsigned \
+			kernel kernel-devel \
+			zfs zfs-dracut
+		chroot "$TEMP" rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
+			| sort -r --version-sort | read KVER
+	else
+		chroot "$TEMP" kernel-install add "$KVER" "/lib/modules/$KVER/vmlinuz"
+	fi
+	findmnt -n -f -o 'partlabel' "$esp" | read LABEL || :
+	if [[ $LABEL =~ ^boot@[a-z]$ ]]; then
+		FILE="$TEMP/etc/fstab"
+		printf -v LINE -- '%s' \
+			"PARTLABEL=$LABEL " \
+			"/$LABEL " \
+			"vfat " \
+			"dmask=0077,fmask=0177," \
+			"context=system_u:object_r:boot_t:s0," \
+			"x-systemd.before=bootbind.service," \
+			"shortname=lower," \
+			"flush," \
+			"discard," \
+			"nofail " \
+			"0 0"
+		if [[ -s $FILE ]]; then
+			sed -i '
+				1 i '"$LINE"'
+				/\s\/'"$LABEL"'\s/ d
+			' "$FILE"
+		else
+			printf "$LINE\n" > "$FILE"
+		fi
+		mkdir -p "$TEMP/$LABEL"
+	fi
+	FILE="$TEMP/boot/loader/loader.conf"
+	[[ -s $FILE ]] || echo > "$FILE"
+	sed -i '
+		1 i timeout 10
+		/^[#[:space:]]*timeout\s.*$/ d
+	' "$FILE"
+	printf 'Entry created. Reboot to select and use %s.\n\n' "$(B $(
+		sed -n "s|^title\s*\(.*\)|\1| p" $TEMP/boot/loader/entries/$ID-*.conf
+	))"
+
+	umount "$TEMP/boot"
+	unset CLEANUP[-1]
+done
+
+dnf "${DNFARGS[@]}" --repo=updates --exclude=kernel\* update
+echo
+
+mktemp -p "$WORKING" -d temp.XXX | read REPO
+CLEANUP+=("rm -rf '$REPO'")
+(
+	set -e
+	cd "$REPO"
+	git clone --no-checkout --depth 1 \
+		https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git .
+	git restore --staged supplements
+	git restore supplements
+	cd supplements
+	install -v * "$TEMP/usr/local/bin" | sed "s|$TEMP||"
+	echo
+)
+[[ $? != 0 ]] && FMT <<- END
+	$(B WARNING): Fedora-on-ZFS supplements were not installed. You might
+	want to retrieve them from
+	https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git manually
+	and copy them to /usr/local/bin on your new Fedora Linux installation.
+
+END
+
+printf "setting root's password ...\n"
+while ! chroot "$TEMP" /usr/bin/passwd root; do
+   FMT <<- END
+		failed to set root's password, retrying ...
+
+	END
+done
+
+if [[ ${#NEW_ESPS[@]} -eq 0 ]]; then
+	MANAGER=':'
+elif ! type -p efibootmgr | read MANAGER; then
+	FMT <<- END
+
+		$(B ERROR): The efibootmgr command is not available.
+
+	END
+	prompt "Install the efibootmgr package?"
+	if [[ $ANSWER == y ]]; then
+		dnf -q -y install efibootmgr
+		echo
+	else
+		FMT <<- END
+
+			$(B WARNING): Terminating without adding ${NEW_ESPS[*]} to the BIOS
+			boot device list. You might need to update your BIOS settings
+			manually.
+
+		END
+		exit 0
+	fi
+	type -p efibootmgr | read MANAGER
+fi
+
+$MANAGER | readarray -t STATUS
+[[ ${#STATUS[@]} != 0 ]] && cat <<- END
+
+	$(B Current BIOS boot device list):
+	$(printf -- '%s\n' "${STATUS[@]}")
+
+END
+[[ ${#STATUS[@]} != 0 ]] && FMT <<- END
+	$(B TIP): You can run $(B $MANAGER -b XXXX -B) manually after this script
+	terminates to remove old or duplicate entries from your BIOS boot device
+	list.
+
+END
+
+ANSWER=''
+lsblk -n -o partuuid -Q 'partuuid =~ ".+"' | readarray -t UUIDS
+for line in "${STATUS[@]}"; do
+	[[
+		$line =~ ^boot([[:xdigit:]]{4}).*(SD-BOOT [A-Z]).*([-[:xdigit:]]{36})
+	]] || continue
+	ENTRY="${BASH_REMATCH[1]}"
+	LABEL="${BASH_REMATCH[2]}"
+	PUUID="${BASH_REMATCH[3]}"
+
+	[[ ${UUIDS[*]} == *$PUUID* ]] && continue
+
+	FMT <<- END
+		$(B BIOS ENTRY) $ENTRY, $(B LABEL):'$LABEL', $(B PARTUUID):$PUUID
+		appears to be invalid. The UUID does not match any detected partition.
+
+	END
+	prompt "Remove entry $ENTRY '$LABEL' from the BIOS boot device list now?"
+	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B
+done
+
+uname -m | read ARCH
+$MANAGER | readarray -t STATUS
+while [[ ${#NEW_ESPS[@]} -gt 0 ]]; do
+	findmnt -n -f -o 'source,partuuid,partlabel' "${NEW_ESPS[-1]}" \
+		| read DEVICE UUID LABEL || :
+	unset NEW_ESPS[-1]
+
+	[[ -n $DEVICE ]] || continue
+	[[ $LABEL =~ ^boot@([a-z])$ ]] || continue
+
+	[[ $ANSWER == y ]] && [[ ${#STATUS[@]} != 0 ]] && cat <<- END
+
+		$(B Current BIOS boot device list):
+		$(printf -- '%s\n' "${STATUS[@]}") 
+
+	END
+
+	SDBOOT="SD-BOOT ${BASH_REMATCH[1]^^}"
+	LOADER="/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi"
+	prompt \
+		"\e[s\e[1E\e[2m(Answer no if there is an equivalent entry.)\e[22m\e[u" \
+		"\e[0GAdd $(B "$SDBOOT $UUID ($DEVICE) $LOADER") to the list?"
+	printf "\e[0G\e[K"
+	if [[ $ANSWER == y ]]; then
+		$MANAGER -c -d "$DEVICE" -l "$LOADER" -L "$SDBOOT" 2> /dev/null \
+			| readarray -t STATUS
+		if [[ ${#STATUS[@]} == 0 ]]; then
+			FMT <<- END
+
+				$(B WARNING): An error occured while trying to update the boot
+				device list. You might need to add $DEVICE to your bootable
+				devices list manually. When creating the new entry, you should
+				point to $(B $LOADER) on $(B $DEVICE).
+
+			END
+		fi
+	fi
+done
+if [[ $ANSWER == y ]] && [[ ${#STATUS[@]} != 0 ]]; then
+	cat <<- END
+
+		$(B Current BIOS boot device list):
+		$(printf -- '%s\n' "${STATUS[@]}") 
+
+	END
+else
+	echo
+fi
+
+prompt "Set $(B $TARGET) as the default systemd-boot menu option?"
+if [[ $ANSWER == y ]]; then
+	for esp in "${VLD_ESPS[@]}"; do
+		FILE="$esp/loader/loader.conf"
+		[[ -s $FILE ]] || echo > "$FILE"
+		sed -i '
+			1 i default '"$ID"'-*
+			/^[#[:space:]]*default\s.*$/ d
+		' "$FILE"
+	done
+	FMT <<- END
+		The default boot menu entry is now $TARGET.
+
+	END
+fi

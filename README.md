@@ -253,6 +253,24 @@ The default boot menu entry is now root/0.
 # reboot
 ```
 
+# Operating System Create (`oscr`)
+
+The `oscr` script will initialize a new minimal Fedora Linux installation and create new boot menu entries. It will install the Fedora Linux release version that is listed in the /etc/os-release file of the current system.
+
+Below is an example that shows how the `oscr` script could be run to create a new root/1 filesystem containing a new minimal Fedora Linux installation.
+
+```
+$ sudo -i
+# oscr root/1
+# exit
+```
+
+As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf install @kde-desktop-environment` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
+
+# Known Bugs
+
+In rare cases, I've seen systemd get confused about which is the correct machine-id for the running system after running the os?? scripts. A reboot will clear the problem, but one of the side-effects of the problem is that the normal `shutdown -r now` command does not work. As a workaround, `systemctl --force --force reboot` can be used to forcibly reboot your system.
+
 # Demo (installation)
 
 [Installation Demo (SVG 1.8MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/install-demo.svg)
