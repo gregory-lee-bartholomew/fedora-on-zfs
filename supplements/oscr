@@ -570,7 +570,7 @@ for line in "${STATUS[@]}"; do
 
 	END
 	prompt "Remove entry $ENTRY '$LABEL' from the BIOS boot device list now?"
-	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B
+	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B || :
 done
 
 uname -m | read ARCH
