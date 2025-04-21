@@ -33,6 +33,9 @@ printf '\n'
 # make sure all the filesystems are mounted
 mount -a &> /dev/null
 
+# remove the grub boot loader (and related packages), if present
+rpm -qa | grep '^\(grub\(2\|by\)\|os-prober\)-' | xargs -r rpm -e
+
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
 read -r -n 1 -p \
