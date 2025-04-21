@@ -249,6 +249,8 @@ function validate_esp {
 			CLEANUP+=("rmdir $MP")
 			mount "$esp" "$MP"
 			CLEANUP+=("umount '$esp'")
+		else
+			CLEANUP+=("sync -f '$MP'")
 		fi
 		
 		dev="$esp"
