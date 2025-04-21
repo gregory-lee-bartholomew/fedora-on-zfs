@@ -519,21 +519,29 @@ for esp in "${VLD_ESPS[@]}"; do
 	unset CLEANUP[-1]
 done
 
-LI='/sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f'
-if
-	[[ ${#NEW_ESPS[@]} -eq 0 ]] && \
-	( ! [[ -e $LI ]] || ! tr -d '\0' < "$LI" | grep -q 'systemd-boot' )
-then
-	exit 0
-fi
+if [[ ${#NEW_ESPS[@]} -eq 0 ]]; then
+	MANAGER=':'
+elif ! type -p efibootmgr | read MANAGER; then
+	FMT <<- END
 
-if ! type -p efibootmgr | read MANAGER; then
-	echo
-	printf "The efibootmgr command is not available.\n"
+		$(B ERROR): The efibootmgr command is not available.
+
+	END
 	prompt "Install the efibootmgr package?"
-	[[ $ANSWER == y ]] && dnf -q -y install efibootmgr
+	if [[ $ANSWER == y ]]; then
+		dnf -q -y install efibootmgr
+		echo
+	else
+		FMT <<- END
+
+			$(B WARNING): Terminating without adding ${NEW_ESPS[*]} to the BIOS
+			boot device list. You might need to update your BIOS settings
+			manually.
+
+		END
+		exit 0
+	fi
 	type -p efibootmgr | read MANAGER
-	echo
 fi
 
 $MANAGER | readarray -t STATUS
