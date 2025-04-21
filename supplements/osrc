@@ -534,7 +534,6 @@ if ! type -p efibootmgr | read MANAGER; then
 	echo
 fi
 
-lsblk -n -o partuuid -Q 'partuuid =~ ".+"' | readarray -t UUIDS
 $MANAGER | readarray -t STATUS
 [[ ${#STATUS[@]} != 0 ]] && cat <<- END
 
@@ -550,6 +549,7 @@ END
 END
 
 ANSWER=''
+lsblk -n -o partuuid -Q 'partuuid =~ ".+"' | readarray -t UUIDS
 for line in "${STATUS[@]}"; do
 	[[
 		$line =~ ^boot([[:xdigit:]]{4}).*(SD-BOOT [A-Z]).*([-[:xdigit:]]{36})

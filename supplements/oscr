@@ -507,7 +507,7 @@ END
 
 printf "setting root's password ...\n"
 while ! chroot "$TEMP" /usr/bin/passwd root; do
-   FMT <<- END
+	FMT <<- END
 		failed to set root's password, retrying ...
 
 	END

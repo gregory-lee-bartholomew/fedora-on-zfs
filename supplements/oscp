@@ -175,8 +175,8 @@ for esp in "${ESPS[@]}"; do
 	fi
 done
 
-zfs list -H -d 1 -o name "$SOURCE" | readarray -t DESCENDANTS
-if [[ ${#DESCENDANTS[@]} -gt 1 ]]; then
+zfs list -H -d 1 -o name "$SOURCE" | readarray -t FILESYSTEMS
+if [[ ${#FILESYSTEMS[@]} -gt 1 ]]; then
 	FMT <<- END
 
 		$(B WARNING): $SOURCE appears to have descendant filesystems. You will
