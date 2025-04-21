@@ -37,18 +37,37 @@ function FMT {
 function usage {
 	cat <<- END 1>&2
 
-		$(B USAGE): $SELF <target-filesystem>
+		$(B USAGE): $SELF [zfs-release-*.noarch.rpm] <target-filesystem>
 
 		Example: $SELF root/1
 
 		- The target filesystem must not exist.
 		- The target pool must exist.
+		- By default, the release to install will be taken from the host system.
+		- To install a specific release of Fedora Linux, provide the correspond-
+		  ing zfs-release RPM archive name as listed at:
+		  https://github.com/zfsonlinux/zfsonlinux.github.com/tree/master/fedora
+		  (you can abbreviate the archive name. e.g.: $(B 2-6.fc41))
+		- To work around SELinux errors, you might have to temporarily put
+		  SELinux in permissive mode (i.e. $(B setenforce permissive)).
+		  Consider filing a bug report against the selinux-policy package at
+		  https://bugz.fedoraproject.org/ if you encounter SELinux errors.
 
 	END
 }
 trap 'usage' err
 
 [[ ${#*} -gt 0 ]]
+
+ARCHIVE=''
+RELEASE=''
+if
+	[[ ${1,,} =~ ^(zfs-release-)?([0-9-]+\.fc[0-9]+)(\.noarch)?(\.rpm)?$ ]]
+then
+	ARCHIVE="zfs-release-${BASH_REMATCH[2]}.noarch"
+	RELEASE="${BASH_REMATCH[2]##*fc}"
+	shift
+fi
 
 TARGET="$1"; shift; ! zfs list -H -o name | grep -qx "$TARGET"; [[ $? == 0 ]]
 T_POOL="${TARGET%%/*}"; zpool list -H -o name | grep -qx "$T_POOL"
@@ -342,6 +361,8 @@ mktemp -p "$WORKING" -d temp.XXX | read TEMP
 CLEANUP+=("rmdir '$TEMP'")
 
 zfs create -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+# CLEANUP[0] will be unset if the OS install completes successfully
+CLEANUP=("zfs destroy '$TARGET'" "${CLEANUP[@]}")
 zfs mount "$TARGET"
 CLEANUP+=("zfs unmount '$TARGET'")
 zfs set -u mountpoint=/ "$TARGET"
@@ -357,16 +378,28 @@ done
 mount -o X-mount.mkdir=755 --bind "/tmp" "$TEMP/tmp"
 CLEANUP+=("umount '$TEMP/tmp'")
 
-DNFARGS=('-y' "--installroot=$TEMP" '--repo=fedora')
-DNFARGS+=('--exclude=dracut-config-rescue')
-DNFARGS+=('--exclude=zfs-fuse')
-DNFARGS+=('--exclude=avahi')
-if readlink /usr/bin/dnf | grep -q 'dnf-3'; then
-	DNFARGS+=("$(sed -n 's/^VERSION_ID=/--releasever=/ p' /etc/os-release)")
-else
-	DNFARGS+=('--use-host-config')
+DNF=('env' 'LANG=C' 'dnf' '-y' "--installroot=$TEMP" '--repo=fedora')
+DNF+=('--exclude=dracut-config-rescue')
+DNF+=('--exclude=zfs-fuse')
+DNF+=('--exclude=avahi')
+if ! readlink /usr/bin/dnf | grep -q 'dnf-3'; then
+	DNF+=('--use-host-config')
 fi
-dnf "${DNFARGS[@]}" group install core
+if [[ -n $RELEASE ]]; then
+	DNF+=("--releasever=$RELEASE")
+else
+	DNF+=("$(sed -n 's/^VERSION_ID=/--releasever=/ p' /etc/os-release)")
+fi
+"${DNF[@]}" group install core \
+	|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) | read -r -d '' STATUS || :
+if [[ ${STATUS,,} =~ failed ]]; then
+	FMT <<- END 1>&2
+
+		$(B ERROR): Failure detected, aborting installation ...
+
+	END
+	exit 1
+fi
 
 cp /etc/hostid "$TEMP/etc"
 systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
@@ -429,14 +462,24 @@ for esp in "${VLD_ESPS[@]}"; do
 		Creating a new boot menu entry and initramfs image on $esp ...
 	END
 	if [[ $esp == ${VLD_ESPS[0]} ]]; then
-		dnf "${DNFARGS[@]}" install https://zfsonlinux.org/fedora/$(
+		"${DNF[@]}" install https://zfsonlinux.org/fedora/${ARCHIVE:-$(
 			rpm -qf /etc/yum.repos.d/zfs.repo
-		).rpm
-		DNFARGS+=('--repo=zfs')
-		dnf "${DNFARGS[@]}" install \
+		)}.rpm
+		DNF+=('--repo=zfs')
+		"${DNF[@]}" install \
 			systemd-boot-unsigned \
 			kernel kernel-devel \
-			zfs zfs-dracut
+			zfs zfs-dracut \
+				|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) \
+				| read -r -d '' STATUS || :
+		if [[ ${STATUS,,} =~ failed ]]; then
+			FMT <<- END 1>&2
+
+				$(B ERROR): Failure detected, aborting installation ...
+
+			END
+			exit 1
+		fi
 		chroot "$TEMP" rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
 			| sort -r --version-sort | read KVER
 	else
@@ -481,7 +524,7 @@ for esp in "${VLD_ESPS[@]}"; do
 	unset CLEANUP[-1]
 done
 
-dnf "${DNFARGS[@]}" --repo=updates --exclude=kernel\* update
+"${DNF[@]}" --repo=updates --exclude=kernel\* update
 echo
 
 mktemp -p "$WORKING" -d temp.XXX | read REPO
@@ -512,6 +555,8 @@ while ! chroot "$TEMP" /usr/bin/passwd root; do
 
 	END
 done
+
+unset CLEANUP[0] # OS install completed, remove "zfs destroy '$TARGET'"
 
 if [[ ${#NEW_ESPS[@]} -eq 0 ]]; then
 	MANAGER=':'
