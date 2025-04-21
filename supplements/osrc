@@ -448,9 +448,25 @@ for i in $LIST; do
 done
 mount -o bind "/tmp" "$TEMP/tmp"
 CLEANUP+=("umount '$TEMP/tmp'")
-chroot "$TEMP" \
-	rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
-		| sort -r --version-sort | read KVER
+KVER=''
+chroot "$TEMP" rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
+		| sort -r --version-sort | readarray -t KCORES
+for kc in "${KCORES[@]}"; do
+	if
+		chroot "$TEMP" readlink -e "/usr/lib/modules/$kc/build" &> /dev/null
+	then
+		KVER="$kc"
+		break
+	fi
+done
+if [[ -z $KVER ]]; then
+	FMT <<- END
+		$(B ERROR): No kernel found on $TARGET that is linked to a compatible
+		installation of kernel-devel. Cannot generate a working kernel+initramfs
+		to boot $TARGET.
+	END
+	exit 1
+fi
 for esp in "${VLD_ESPS[@]}"; do
 	mount -o bind "$esp" "$TEMP/boot"
 	CLEANUP+=("umount '$TEMP/boot'")
