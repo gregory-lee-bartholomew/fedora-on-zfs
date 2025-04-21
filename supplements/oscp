@@ -237,6 +237,7 @@ done
 ID="${id,,}"
 
 mktemp -p "$WORKING" -d temp.XXX | read TEMP
+CLEANUP+=("rmdir '$TEMP'")
 
 function pv {
 	if type -pf pv &> /dev/null; then
