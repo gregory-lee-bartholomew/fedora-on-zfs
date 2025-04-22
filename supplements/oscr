@@ -379,6 +379,7 @@ mount -o X-mount.mkdir=755 --bind "/tmp" "$TEMP/tmp"
 CLEANUP+=("umount '$TEMP/tmp'")
 
 DNF=('env' 'LANG=C' 'dnf' '-y' "--installroot=$TEMP" '--repo=fedora')
+DNF+=('--exclude=grub2-*' '--exclude=os-prober')
 DNF+=('--exclude=dracut-config-rescue')
 DNF+=('--exclude=zfs-fuse')
 DNF+=('--exclude=avahi')
