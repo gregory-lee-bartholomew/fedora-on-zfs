@@ -516,16 +516,40 @@ for esp in "${VLD_ESPS[@]}"; do
 		1 i timeout 10
 		/^[#[:space:]]*timeout\s.*$/ d
 	' "$FILE"
-	printf 'Entry created. Reboot to select and use %s.\n\n' "$(B $(
-		sed -n "s|^title\s*\(.*\)|\1| p" $TEMP/boot/loader/entries/$ID-*.conf
-	))"
+	cat <<- END
+
+		Entry created. Reboot to select and use $(B $(
+			sed -n "s|^title\s*\(.*\)|\1| p" $TEMP/boot/loader/entries/$ID-*.conf
+		))
+
+	END
 
 	umount "$TEMP/boot"
 	unset CLEANUP[-1]
 done
 
-"${DNF[@]}" --repo=updates --exclude=kernel\* update
-echo
+"${DNF[@]}" install git-core selinux-policy-devel gettext-envsubst
+chroot "$TEMP" bash -e <<- 'END'
+	shopt -s lastpipe
+	mktemp -p /tmp -d temp.XXX | read REPO
+	trap "rm -rf '$REPO'" err
+	cd "$REPO"
+	git clone --depth 1 \
+		https://github.com/gregory-lee-bartholomew/bootsync.git .
+	make install
+	make sepolicy_install &> /dev/null || :
+END
+if [[ $? == 0 ]]; then
+	"${DNF[@]}" install efibootmgr rsync
+	echo
+else
+	FMT <<- END
+
+		$(B WARNING): bootsync was not installed. You might want to install it
+		manually from https://github.com/gregory-lee-bartholomew/bootsync.git.
+
+	END
+fi
 
 mktemp -p "$WORKING" -d temp.XXX | read REPO
 CLEANUP+=("rm -rf '$REPO'")
@@ -547,6 +571,9 @@ CLEANUP+=("rm -rf '$REPO'")
 	and copy them to /usr/local/bin on your new Fedora Linux installation.
 
 END
+
+"${DNF[@]}" -q --repo=updates --exclude=kernel\* update || :
+echo
 
 printf "setting root's password ...\n"
 while ! chroot "$TEMP" /usr/bin/passwd root; do
