@@ -402,6 +402,9 @@ if [[ ${STATUS,,} =~ failed ]]; then
 	exit 1
 fi
 
+"${DNF[@]}" install plymouth-theme-script
+chroot "$TEMP" plymouth-set-default-theme details || :
+
 cp /etc/hostid "$TEMP/etc"
 systemd-firstboot --force --root="$TEMP" --machine-id="$ID" &> /dev/null
 chroot "$TEMP" fixfiles -F onboot || :
