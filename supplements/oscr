@@ -545,6 +545,7 @@ chroot "$TEMP" bash -e <<- 'END'
 END
 if [[ $? == 0 ]]; then
 	"${DNF[@]}" install efibootmgr rsync
+	find "$TEMP/boot" -mindepth 1 -maxdepth 1 -exec rm -rf "{}" \;
 	echo
 else
 	FMT <<- END
