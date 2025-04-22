@@ -572,8 +572,11 @@ CLEANUP+=("rm -rf '$REPO'")
 
 END
 
-"${DNF[@]}" -q --repo=updates --exclude=kernel\* update || :
-echo
+prompt "Install latest updates?"
+if [[ $ANSWER == y ]]; then
+	"${DNF[@]}" -q --repo=updates --exclude=kernel\* update || :
+	echo
+fi
 
 printf "setting root's password ...\n"
 while ! chroot "$TEMP" /usr/bin/passwd root; do
