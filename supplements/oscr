@@ -362,7 +362,7 @@ CLEANUP+=("rmdir '$TEMP'")
 
 zfs create -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
 # CLEANUP[0] will be unset if the OS install completes successfully
-CLEANUP=("zfs destroy '$TARGET'" "${CLEANUP[@]}")
+CLEANUP=("zfs destroy '$TARGET'" "sleep 1" "${CLEANUP[@]}")
 zfs mount "$TARGET"
 CLEANUP+=("zfs unmount '$TARGET'")
 zfs set -u mountpoint=/ "$TARGET"
@@ -579,7 +579,17 @@ END
 
 prompt "Install latest updates?"
 if [[ $ANSWER == y ]]; then
-	"${DNF[@]}" -q --repo=updates --exclude=kernel\* update || :
+	"${DNF[@]}" -q --repo=updates --exclude=kernel\* update \
+		|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) \
+		| read -r -d '' STATUS || :
+	if [[ ${STATUS,,} =~ failed ]]; then
+		FMT <<- END 1>&2
+
+			$(B ERROR): Failure detected, aborting installation ...
+
+		END
+		exit 1
+	fi
 	echo
 fi
 
