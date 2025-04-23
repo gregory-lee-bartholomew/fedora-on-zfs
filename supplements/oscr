@@ -360,14 +360,21 @@ ID="${id,,}"
 mktemp -p "$WORKING" -d temp.XXX | read TEMP
 CLEANUP+=("rmdir '$TEMP'")
 
-zfs create -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+zpool get -H -o value altroot "${TARGET%%/*}" | read ALTROOT
+if [[ $ALTROOT == - ]]; then
+	zfs create -o canmount=noauto -o mountpoint="$TEMP" "$TARGET"
+	CLEANUP+=("zfs set -u mountpoint='/' '$TARGET'")
+else
+	zfs create -o canmount=noauto -o mountpoint="/" "$TARGET"
+fi
 # CLEANUP[0] will be unset if the OS install completes successfully
 CLEANUP=("zfs destroy '$TARGET'" "sleep 1" "${CLEANUP[@]}")
 zfs mount "$TARGET"
-CLEANUP+=("zfs unmount '$TARGET'")
-zfs set -u mountpoint=/ "$TARGET"
-
-mountpoint -q "$TEMP"
+CLEANUP+=("zfs unmount '$TARGET'; sleep 1")
+if [[ $ALTROOT != - ]]; then
+	mount -o bind "$ALTROOT" "$TEMP"
+	CLEANUP+=("umount '$TEMP'")
+fi
 
 LIST="dev proc sys run"
 for i in $LIST; do
