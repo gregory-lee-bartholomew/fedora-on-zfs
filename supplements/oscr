@@ -663,11 +663,11 @@ ANSWER=''
 lsblk -n -o partuuid -Q 'partuuid =~ ".+"' | readarray -t UUIDS
 for line in "${STATUS[@]}"; do
 	[[
-		${line,,} =~ ^boot([[:xdigit:]]{4}).*(sd-boot [a-z]).*([-[:xdigit:]]{36})
+		${line^^} =~ ^BOOT([[:xdigit:]]{4}).*(SD-BOOT [A-Z]).*([-[:xdigit:]]{36})
 	]] || continue
 	ENTRY="${BASH_REMATCH[1]}"
 	LABEL="${BASH_REMATCH[2]}"
-	PUUID="${BASH_REMATCH[3]}"
+	PUUID="${BASH_REMATCH[3],,}"
 
 	[[ ${UUIDS[*]} == *$PUUID* ]] && continue
 
