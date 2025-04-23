@@ -610,11 +610,14 @@ if [[ $ANSWER == y ]]; then
 	echo 1>&2
 fi
 
-printf "setting root's password ...\n"
+cat <<- END
+
+	setting root's password ...
+END
 while ! chroot "$TEMP" /usr/bin/passwd root; do
 	FMT <<- END
-		failed to set root's password, retrying ...
 
+		failed to set root's password, retrying ...
 	END
 done
 
@@ -650,13 +653,12 @@ $MANAGER | readarray -t STATUS
 
 	$(B Current BIOS boot device list):
 	$(printf -- '%s\n' "${STATUS[@]}")
-
 END
 [[ ${#STATUS[@]} != 0 ]] && FMT <<- END
+
 	$(B TIP): You can run $(B $MANAGER -b XXXX -B) manually after this script
 	terminates to remove old or duplicate entries from your BIOS boot device
 	list.
-
 END
 
 ANSWER=''
@@ -672,12 +674,13 @@ for line in "${STATUS[@]}"; do
 	[[ ${UUIDS[*]} == *$PUUID* ]] && continue
 
 	FMT <<- END
+
 		$(B BIOS ENTRY) $ENTRY, $(B LABEL):'$LABEL', $(B PARTUUID):$PUUID
 		appears to be invalid. The UUID does not match any detected partition.
 
 	END
 	prompt "Remove entry $ENTRY '$LABEL' from the BIOS boot device list now?"
-	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B || :
+	[[ $ANSWER == y ]] && $MANAGER -b "$ENTRY" -B &> /dev/null || :
 done
 
 uname -m | read ARCH
