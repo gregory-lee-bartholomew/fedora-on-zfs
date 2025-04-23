@@ -60,15 +60,18 @@ trap 'usage' err
 
 [[ ${#*} -gt 0 ]]
 
-ARCHIVE=''
-RELEASE=''
 if
 	[[ ${1,,} =~ ^(zfs-release-)?([0-9-]+\.fc[0-9]+)(\.noarch)?(\.rpm)?$ ]]
 then
 	ARCHIVE="zfs-release-${BASH_REMATCH[2]}.noarch"
 	RELEASE="${BASH_REMATCH[2]##*fc}"
 	shift
+else
+	ARCHIVE="$(rpm -qf /etc/yum.repos.d/zfs.repo)"
+	RELEASE="$(sed -n 's/^VERSION_ID=// p' /etc/os-release)"
 fi
+: "${ARCHIVE:?}"
+: "${RELEASE:?}"
 
 TARGET="$1"; shift; ! zfs list -H -o name | grep -qx "$TARGET"; [[ $? == 0 ]]
 T_POOL="${TARGET%%/*}"; zpool list -H -o name | grep -qx "$T_POOL"
@@ -386,18 +389,28 @@ done
 mount -o X-mount.mkdir=755 --bind "/tmp" "$TEMP/tmp"
 CLEANUP+=("umount '$TEMP/tmp'")
 
-DNF=('env' 'LANG=C' 'dnf' '-y' "--installroot=$TEMP" '--repo=fedora')
-DNF+=('--exclude=grub2-*' '--exclude=os-prober')
-DNF+=('--exclude=dracut-config-rescue')
-DNF+=('--exclude=zfs-fuse')
-DNF+=('--exclude=avahi')
-if ! readlink /usr/bin/dnf | grep -q 'dnf-3'; then
-	DNF+=('--use-host-config')
-fi
-if [[ -n $RELEASE ]]; then
-	DNF+=("--releasever=$RELEASE")
+# these packages will be excluded from the initial installation
+# and banned from future installation in /etc/dnf/dnf.conf
+XXX=(
+	'grub2-*'
+	'os-prober'
+	'dracut-config-rescue'
+	'zfs-fuse'
+)
+
+DNF=(
+	'env' 'LANG=C' 'dnf' '-y'
+	"--installroot=$TEMP"
+	'--repo=fedora'
+	"--releasever=$RELEASE"
+	"${XXX[@]/*/--exclude=&}"
+	'--exclude=avahi'
+)
+if readlink /usr/bin/dnf | grep -q 'dnf-3'; then
+	MGR='dnf-command(config-manager)'
 else
-	DNF+=("$(sed -n 's/^VERSION_ID=/--releasever=/ p' /etc/os-release)")
+	MGR='dnf5-command(config-manager)'
+	DNF+=('--use-host-config')
 fi
 "${DNF[@]}" group install core \
 	|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) | read -r -d '' STATUS || :
@@ -409,6 +422,12 @@ if [[ ${STATUS,,} =~ failed ]]; then
 	END
 	exit 1
 fi
+
+"${DNF[@]}" install "$MGR"
+(
+	IFS=','
+	chroot "$TEMP" dnf config-manager setopt "excludepkgs=${XXX[*]}"
+)
 
 "${DNF[@]}" install plymouth-theme-script
 chroot "$TEMP" plymouth-set-default-theme details || :
@@ -483,9 +502,7 @@ for esp in "${VLD_ESPS[@]}"; do
 		Creating a new boot menu entry and initramfs image on $esp ...
 	END
 	if [[ $esp == ${VLD_ESPS[0]} ]]; then
-		"${DNF[@]}" install https://zfsonlinux.org/fedora/${ARCHIVE:-$(
-			rpm -qf /etc/yum.repos.d/zfs.repo
-		)}.rpm
+		"${DNF[@]}" install "https://zfsonlinux.org/fedora/$ARCHIVE.rpm"
 		DNF+=('--repo=zfs')
 		"${DNF[@]}" install \
 			systemd-boot-unsigned \
