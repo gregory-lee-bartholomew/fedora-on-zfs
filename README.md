@@ -267,6 +267,20 @@ $ sudo -i
 
 As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf install @kde-desktop-environment` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
 
+---
+
+The `oscr` script can also be run from a Fedora Live image. To do so, first complete the steps **1** (Install ZFS), **2** (Partition the new SSDs), and **3** (Create a new ZFS root pool) from the [Restoring a backup Fedora-on-ZFS installation](#restoring-a-backup-fedora-on-zfs-installation) section above. Then use to the following commands to download and run the `oscr` script.
+
+```
+# dnf install -y git-core
+# git clone https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git
+# cp fedora-on-zfs/supplements/oscr ~
+# setenforce permissive
+# ~/oscr "$POOL/0" "${DRIVES[@]/*/&1}"
+# zpool export "$POOL"
+# reboot
+```
+
 # Known Bugs
 
 In rare cases, I've seen systemd get confused about which is the correct machine-id for the running system after running the os?? scripts. A reboot will clear the problem, but one of the side-effects of the problem is that the normal `shutdown -r now` command does not work. As a workaround, `systemctl --force --force reboot` can be used to forcibly reboot your system.

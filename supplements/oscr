@@ -35,9 +35,10 @@ function FMT {
 }
 
 function usage {
-	cat <<- END 1>&2
+	sed 's/\t//g' <<- END 1>&2
 
-		$(B USAGE): $SELF [zfs-release-*.noarch.rpm] <target-filesystem>
+		$(B USAGE): $SELF [zfs-release-*.noarch.rpm] <target-filesystem> \
+		[esp0 esp1 ...]
 
 		Example: $SELF root/1
 
