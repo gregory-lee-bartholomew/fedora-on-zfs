@@ -419,8 +419,17 @@ echo
 
 FILE="$TEMP/etc/kernel/cmdline"
 mkdir -p "${FILE%/*}"
-cp /etc/kernel/cmdline "$FILE"
-sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$FILE"
+if
+	[[ -e /etc/kernel/cmdline ]] && \
+	[[ $(</etc/kernel/cmdline) =~ root=zfs:[^[:space:]]+ ]]
+then
+	cp /etc/kernel/cmdline "$FILE"
+	sed -i "s|root=zfs:\S\+|root=zfs:$TARGET|" "$FILE"
+else
+	cat <<- END > "$FILE"
+		root=zfs:$TARGET quiet rhgb
+	END
+fi
 
 FILE="$TEMP/etc/kernel/install.conf"
 [[ -s $FILE ]] || echo > "$FILE"
