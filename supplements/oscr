@@ -536,7 +536,7 @@ done
 chroot "$TEMP" bash -e <<- 'END'
 	shopt -s lastpipe
 	mktemp -p /tmp -d temp.XXX | read REPO
-	trap "rm -rf '$REPO'" err
+	trap "rm -rf '$REPO'" exit
 	cd "$REPO"
 	git clone --depth 1 \
 		https://github.com/gregory-lee-bartholomew/bootsync.git .
@@ -545,7 +545,7 @@ chroot "$TEMP" bash -e <<- 'END'
 END
 if [[ $? == 0 ]]; then
 	"${DNF[@]}" install efibootmgr rsync
-	find "$TEMP/boot" -mindepth 1 -maxdepth 1 -exec rm -rf "{}" \;
+	CLEANUP+=("find '$TEMP/boot' -mindepth 1 -maxdepth 1 -exec rm -rf '{}' \;")
 	echo
 else
 	FMT <<- END
