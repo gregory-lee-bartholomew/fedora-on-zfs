@@ -72,7 +72,7 @@ I recommend creating separate user accounts for the separate OS installations if
     # shopt -s dotglob
     # cp -v -a /etc/skel/* /home/$USERNAME
     # shopt -u dotglob
-    # useradd --home-dir /home/$USERNAME --no-create-home --comment="$FULLNAME" $USERNAME
+    # useradd --home-dir /home/$USERNAME --no-create-home --comment "$FULLNAME" $USERNAME
     # chown -R $USERNAME: /home/$USERNAME
     # restorecon -r /home/$USERNAME
     # passwd $USERNAME
