@@ -44,23 +44,45 @@ fi
 
 command -p dnf -y --repo=updates update kernel\* || exit 1
 
-lsinitrd -m -k "$KERNEL" | grep -qx 'zfs' && exit 0
+RETRIES=0
+while ! lsinitrd -m -k "$KERNEL" 2> /dev/null | grep -qx 'zfs'; do
+	RETRIES=$(($RETRIES+1))
+	fmt -g 75 <<- ERROR
+		ERROR: The zfs module does not appear to be in the updated initramfs.
+		Without the zfs module, the new kernel+initramfs will not be able to
+		boot your root-on-zfs system. You have a choice:
 
-fmt -g 75 <<- ERROR
-	ERROR: The zfs module does not appear to be in the updated initramfs.
-	Without the zfs module, the new kernel+initramfs will not be able to
-	boot your root-on-zfs system. You have a choice:
+		1. Run [1mdnf history undo last[22m to undo this kernel update.
 
-	1. Run [1mdnf history undo last[22m to undo this kernel update.
+		2. Try running [1mdkms autoinstall ... && kernel-install add ...[22m
+		This might suffice to fix situations where kernel-core was updated
+		without using this script (try to avoid doing that).
 
-	2. Exit now. (You can attempt to fix the problem manually with
-	[1mdkms remove/add[22m and [1mkernel-install remove/add[22m.)
+		3. Exit now. (You can attempt to fix the problem manually with
+		[1mdkms uninstall/install[22m and/or
+		[1mkernel-install remove/add[22m.)
 
-ERROR
-read -r -n 1 -p "What is your choice [1/2]?: " CHOICE
-printf '\n'
+	ERROR
+	read -r -n 1 -p "What is your choice [1/2/3]?: " CHOICE
+	printf '\n'
 
-case "$CHOICE" in
-	(1) command -p dnf history undo --skip-unavailable last ;;
-	(*) exit 1 ;;
-esac
+	case "$CHOICE" in
+		(1)
+			command -p dnf history undo --skip-unavailable last
+			exit 1
+		;;
+		(2)
+			dkms autoupdate -k "$KERNEL"
+			[[ $? == 0 ]] && kernel-install add \
+				"$KERNEL" "/usr/lib/modules/$KERNEL/vmlinuz"
+		;;
+		(*) exit 1 ;;
+	esac
+done
+if [[ $RETRIES -gt 0 ]]; then
+	fmt -g 75 <<- INFO
+
+		SUCCESS: Recovery option [1m$CHOICE[22m appears to have worked!
+
+	INFO
+fi
