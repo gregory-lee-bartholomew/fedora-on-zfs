@@ -265,7 +265,7 @@ $ sudo -i
 # exit
 ```
 
-As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf install @kde-desktop-environment` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
+As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf --repo=fedora install @kde-desktop-environment` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
 
 ---
 
