@@ -406,11 +406,12 @@ DNF=(
 	"${XXX[@]/*/--exclude=&}"
 	'--exclude=avahi'
 )
-if readlink /usr/bin/dnf | grep -q 'dnf-3'; then
-	MGR='dnf-command(config-manager)'
-else
-	MGR='dnf5-command(config-manager)'
+readlink /usr/bin/dnf | grep -o '[0-9]\+$' | read VER
+if [[ $VER -ge 5 ]]; then
+	MGR="dnf$VER-command(config-manager)"
 	DNF+=('--use-host-config')
+else
+	MGR='dnf-command(config-manager)'
 fi
 "${DNF[@]}" group install core \
 	|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) | read -r -d '' STATUS || :
