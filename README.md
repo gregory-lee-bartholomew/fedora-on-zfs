@@ -61,7 +61,8 @@ These helper scripts are written in Bash and they are saved under /usr/local/bin
 I recommend creating separate user accounts for the separate OS installations if you will be using any of the large desktop environments such as GNOME or KDE. The following commands demonstrate how to add a user to a Fedora-on-ZFS installation.
 
     $ sudo -i
-    # USERNAME='linus'
+    # USERNAME='douglas'
+    # FULLNAME='Douglas Adams'
     # zfs create -o mountpoint=legacy root/$USERNAME
     # sed -i "$ a root/$USERNAME /home/$USERNAME zfs nofail 0 0" /etc/fstab
     # systemctl daemon-reload
@@ -71,7 +72,7 @@ I recommend creating separate user accounts for the separate OS installations if
     # shopt -s dotglob
     # cp -v -a /etc/skel/* /home/$USERNAME
     # shopt -u dotglob
-    # useradd --home-dir /home/$USERNAME --no-create-home $USERNAME
+    # useradd --home-dir /home/$USERNAME --no-create-home --comment="$FULLNAME" $USERNAME
     # chown -R $USERNAME: /home/$USERNAME
     # restorecon -r /home/$USERNAME
     # passwd $USERNAME
