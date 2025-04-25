@@ -48,6 +48,7 @@ RETRIES=0
 while ! lsinitrd -m -k "$KERNEL" 2> /dev/null | grep -qx 'zfs'; do
 	RETRIES=$(($RETRIES+1))
 	fmt -g 75 <<- ERROR
+
 		ERROR: The zfs module does not appear to be in the updated initramfs.
 		Without the zfs module, the new kernel+initramfs will not be able to
 		boot your root-on-zfs system. You have a choice:
