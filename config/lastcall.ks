@@ -33,8 +33,22 @@ printf '\n'
 # make sure all the filesystems are mounted
 mount -a &> /dev/null
 
-# remove the grub boot loader (and related packages), if present
-rpm -qa | grep '^\(grub\(2\|by\)\|os-prober\)-' | xargs -r rpm -e
+# remove some incompatible packages and ban them from future installation
+XXX=(
+	'grub2-*'
+	'os-prober'
+	'grubby'
+	'dracut-config-rescue'
+	'zfs-fuse'
+)
+rpm -qa | grep "${XXX[@]/*/--regexp=^&-}" | xargs -r rpm -e
+DNF=('/usr/bin/dnf' '-q' '-y')
+readlink "${DNF[0]}" | grep -o '[0-9]\+$' | read VER
+[[ $VER -lt 5 ]] && VER=''
+"${DNF[@]}" install "dnf$VER-command(config-manager)"
+printf '\n'
+(IFS=','; "${DNF[@]}" config-manager setopt "excludepkgs=${XXX[*]}";)
+printf '\n'
 
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
@@ -42,13 +56,12 @@ read -r -n 1 -p \
 	'install the latest package updates (recommended)? [y/n]: ' ANSWER
 printf '\n'
 if [[ $ANSWER == y ]]; then
-	/usr/bin/dnf -y \
+	"${DNF[@]}" \
 		--disablerepo=zfs* \
 		--exclude=kernel* \
 		--exclude=audit --exclude=audit-libs \
 		distro-sync
-	/usr/bin/dnf -q -y \
-		install rpmconf
+	"${DNF[@]}" install rpmconf
 	rpmconf -a -u use_maintainer
 fi
 
