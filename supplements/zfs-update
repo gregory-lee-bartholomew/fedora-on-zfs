@@ -8,4 +8,35 @@ if [[ $(command -p id -u) != 0 ]]; then
 	exit 1
 fi
 
+(
+	set -e
+	shopt -s lastpipe
+
+	trap "echo warning: failed to update zfs repo and gpg key" err
+	trap "echo" exit
+
+	. /etc/os-release
+	[[ $VERSION_ID -gt 0 ]]
+
+	which git 1> /dev/null
+
+	mktemp -p /tmp -d repo.XXX | read REPO
+	trap "rm -rf '$REPO'; echo;" exit
+	cd "$REPO"
+	{
+		git clone --no-checkout --depth 1 \
+			https://github.com/zfsonlinux/zfsonlinux.github.com .
+		git restore --staged fedora
+		git restore fedora
+	} &> /dev/null
+	ls fedora \
+		| grep -o "zfs-release[[:alnum:]\-]*.fc$VERSION_ID.noarch.rpm" \
+		| sort -r -t '.' -k 2 \
+		| read RPM
+	if ! command -p rpm -q "${RPM%\.rpm}" &> /dev/null; then
+		command -p rpm -U "fedora/$RPM"
+		echo
+	fi
+)
+
 command -p dnf --repo=zfs update "$@"
