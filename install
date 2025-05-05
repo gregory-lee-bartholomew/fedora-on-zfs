@@ -327,31 +327,48 @@ if [[ $ZREP =~ \.rpm$ ]]; then
 elif [[ $RV -le 34 ]]; then
 	ZKEY="zfs-release.fc$RV.noarch.rpm"
 else
-	mktemp -d keys.XXX | read TEMP
-	cd "$TEMP"
-	git clone --no-checkout --depth 1 ${ZREP%%*(/)}/ .
-	git ls-tree --full-name --name-only -r HEAD | grep '^fedora/zfs-release' \
-		| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
-		| sort -r -t '.' -k 2 | read ZKEY
-	cd - &>/dev/null
-	[[ $TEMP =~ keys....$ ]] && rm -rf "$TEMP"
+	(
+		set -e
+		shopt -s lastpipe
+
+		mktemp -p /tmp -d repo.XXX | read REPO
+		trap "rm -rf '$REPO'" exit
+		cd "$REPO"
+		{
+			git clone --no-checkout --depth 1 \
+				${ZREP%%*(/)}/ .
+			git restore --staged fedora
+			git restore fedora
+		} &> /dev/null
+		ls fedora \
+			| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
+			| sort -r -t '.' -k 2 \
+			| read RPM
+		cp "fedora/$RPM" "$OLDPWD/$RV"
+		printf "%s\n" "$RPM"
+	) | read ZKEY
 fi
 eval ${PREVIOUS_ERR_TRAP:-trap - err}
 if [[ $ZREP =~ zfsonlinux.github.com/?$ ]]; then
 	ZREP="${ZREP%%*(/)}/raw/master/fedora"
 fi
+which curl rpm2cpio cpio 1> /dev/null
+mktemp -d | read TEMP
 declare -a RPMS=()
 RPMS+=("${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os\
 /Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm")
-RPMS+=("${ZREP%%*(/)}/$ZKEY")
-TEMPDIR=$(mktemp -d)
-which curl rpm2cpio cpio 1>/dev/null
+if [[ -e $RV/$ZKEY ]]; then
+	rpm2cpio "$RV/$ZKEY" \
+		| cpio -i -u -d --quiet --directory="$TEMP" "./etc/pki/rpm-gpg/*"
+else
+	RPMS+=("${ZREP%%*(/)}/$ZKEY")
+fi
 for rpm in "${RPMS[@]}"; do
 	printf "Downloading $rpm ...\n"
 	if ! curl -s -L "$rpm" \
 		| tee "$RV/${rpm##*/}" \
 		| rpm2cpio \
-		| cpio -i -u -d --quiet --directory="$TEMPDIR" "./etc/pki/rpm-gpg/*"
+		| cpio -i -u -d --quiet --directory="$TEMP" "./etc/pki/rpm-gpg/*"
 	then
 		fail 'The download failed. Are $FREP and $ZREP correct?\n'
 	fi
@@ -363,7 +380,7 @@ KEYSDIR='updates/etc/pki/rpm-gpg'
 which gpg 1>/dev/null
 rm -rf "$KEYSDIR"
 mkdir -p "$KEYSDIR"
-find $TEMPDIR -type f -name 'RPM-GPG-KEY-*' -print0 \
+find "$TEMP" -type f -name 'RPM-GPG-KEY-*' -print0 \
 	| readarray -d '' -t KEYS
 for key in "${KEYS[@]}"; do
 	[[ $key =~ [^/]*zfs[^/]*$ ]] || [[ $key =~ $RV-primary$ ]] || continue
