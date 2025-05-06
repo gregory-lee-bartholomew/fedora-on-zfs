@@ -17,6 +17,16 @@ if ! [[ $* =~ --installroot ]]; then
 		[[ ${arg:0:1} == - ]] && continue
 		case "$arg" in
 			(update|upgrade|up) UPDATE=1 ;;
+			(distro-sync)
+				N=''
+				. <(sed -n 's/^VERSION_ID=/N=/ p' /etc/os-release)
+				[[ -n $N ]] && N=$(($N+1))
+				cat <<- END
+					distro-sync is not recommended for normal release upgrades.
+					use [1mdnf upgrade --releasever=${N:-<N>}[22m instead.
+				END
+				exit 1
+			;;
 			(*) break ;;
 		esac
 	done
