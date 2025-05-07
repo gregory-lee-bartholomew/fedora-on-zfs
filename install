@@ -185,6 +185,40 @@ if ! [[ -e fedora-kickstarts ]]; then
 	git clone 'https://pagure.io/fedora-kickstarts.git'
 fi
 (cd fedora-kickstarts && git checkout "f$RV") || exit 1
+# annoyingly, fedora-disk-minimal.ks was dropped after Fedora Linux 41
+FILE='fedora-kickstarts/fedora-minimal-common.ks'
+[[ -s $FILE ]] || cat <<- 'END' > "$FILE"
+	%packages
+	dnf5
+	-@standard
+	-initial-setup-gui
+	-generic-release*
+	-glibc-all-langpacks
+	# recommended by iproute, we don't want it in minimal
+	-iproute-tc
+	# recommended by gnutls, we don't want it in minimal
+	-trousers
+	glibc-langpack-en
+	iw
+	NetworkManager-wifi
+	%end
+
+	%post
+
+	# setup systemd to boot to the right runlevel
+	echo -n "Setting default runlevel to multiuser text mode"
+	systemctl set-default multi-user.target
+	echo .
+
+	%end
+END
+FILE='fedora-kickstarts/fedora-disk-minimal.ks'
+[[ -s $FILE ]] || cat <<- 'END' > "$FILE"
+	%include fedora-disk-base.ks
+	%include fedora-minimal-common.ks
+
+	services --enabled=sshd,NetworkManager,chronyd,initial-setup
+END
 if ! [[ -f fedora-kickstarts/$KS ]]; then
 	fail "Kickstart file 'fedora-kickstarts/$KS' not found.\n"
 fi
