@@ -41,20 +41,34 @@ for d in /dev/vd[a-z]; do
 done
 partprobe
 
+rm -f /etc/yum.repos.d/fedora.repo
+RFP="--repofrompath=fedora,$REPO"
+
+DNF=(
+	dnf
+	-q
+	-y
+	--releasever="$RELEASEVER"
+	--repo=fedora
+)
+
 # kernel-devel is required to build the zfs driver
-dnf install -q -y --nogpgcheck --releasever=$RELEASEVER \
-	--repofrompath="fedora,$REPO" kernel-devel
+"${DNF[@]}" "$RFP" install kernel-devel
 
 # bug(s)?
 ln -snf /usr/src/kernels/$(uname -r) /lib/modules/$(uname -r)/build
 systemctl start systemd-resolved.service
 sleep 1
 
+if [[ $RELEASEVER -ge 42 ]]; then
+	DNF+=("$RFP")
+else
+	DNF+=(--nogpgcheck)
+fi
+
 # build the zfs driver (uses dkms)
-dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
-	"/host/$ZKEY"
-dnf install -q -y --nogpgcheck --releasever="$RELEASEVER" \
-	--repo=fedora --repo=zfs libunwind zfs
+"${DNF[@]}" install "/host/$ZKEY"
+"${DNF[@]}" --repo=zfs install libunwind zfs
 printf '\n'
 
 # create a new hostid for zfs
