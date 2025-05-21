@@ -198,6 +198,14 @@ function label {
 # correct value for EFI System Partitions. (substitute X with the correct
 # drive letter and N with the partition number.)
 ESP_GUID='c12a7328-f81f-11d2-ba4b-00a0c93ec93b'
+MNT_OPTS=(
+	dmask=0077
+	fmask=0177
+	context=system_u:object_r:boot_t:s0
+	shortname=lower
+	flush
+	discard
+)
 function validate_esp {
 	if ! [[ -e $esp ]]; then
 		REASON="File $esp not found."
@@ -227,7 +235,7 @@ function validate_esp {
 		if [[ -z $MP ]]; then
 			mktemp -p "$WORKING" -d esp.XXX | read MP
 			CLEANUP+=("rmdir $MP")
-			mount "$esp" "$MP"
+			(IFS=','; mount -o "${MNT_OPTS[*]}" "$esp" "$MP")
 			CLEANUP+=("umount '$esp'")
 		else
 			CLEANUP+=("sync -f '$MP'")
@@ -280,9 +288,10 @@ function validate_esp {
 
 				$(B WARNING): Refusing to update partlabel on ${dev:-$esp}
 				due to reference found in /etc/fstab.
+
 			END
 		fi
-		if ! [[ ${#LABELS} -gt ${#BEFORE} ]]; then
+		if ! [[ ${#LABELS[@]} -gt $BEFORE ]]; then
 			FMT <<- END
 
 				$(B WARNING): Failed to set partition label on ${dev:-$esp}.
@@ -495,6 +504,7 @@ if ! [[ -e $FILE ]]; then
 	chmod +x "$FILE"
 fi
 
+BOOTSYNC=0
 for esp in "${VLD_ESPS[@]}"; do
 	mount -o bind "$esp" "$TEMP/boot"
 	CLEANUP+=("umount '$TEMP/boot'")
@@ -524,19 +534,36 @@ for esp in "${VLD_ESPS[@]}"; do
 	else
 		chroot "$TEMP" kernel-install add "$KVER" "/lib/modules/$KVER/vmlinuz"
 	fi
-	findmnt -n -f -o 'partlabel' "$esp" | read LABEL || :
-	if [[ $LABEL =~ ^boot@[a-z]$ ]]; then
-		FILE="$TEMP/etc/fstab"
+	FILE="$TEMP/etc/fstab"
+	findmnt -n -f -o 'partuuid,partlabel' "$esp" | read UUID LABEL
+	if [[ -n $LABEL ]]; then
+		DEV="PARTLABEL=$LABEL"
+	else
+		DEV="PARTUUID=$UUID"
+	fi
+	if [[ ${VLD_ESPS[*]} == /boot ]]; then
+		printf -v LINE -- '%s' \
+			"$DEV " \
+			"/boot " \
+			"vfat " \
+			"$(IFS=','; echo "${MNT_OPTS[*]}")," \
+			"nofail " \
+			"0 0"
+		if [[ -s $FILE ]]; then
+			sed -i '
+				1 i '"$LINE"'
+				/\s\/boot\s/ d
+			' "$FILE"
+		else
+			printf "$LINE\n" > "$FILE"
+		fi
+	elif [[ $LABEL =~ ^boot@[a-z]$ ]]; then
 		printf -v LINE -- '%s' \
 			"PARTLABEL=$LABEL " \
 			"/$LABEL " \
 			"vfat " \
-			"dmask=0077,fmask=0177," \
-			"context=system_u:object_r:boot_t:s0," \
+			"$(IFS=','; echo "${MNT_OPTS[*]}")," \
 			"x-systemd.before=bootbind.service," \
-			"shortname=lower," \
-			"flush," \
-			"discard," \
 			"nofail " \
 			"0 0"
 		if [[ -s $FILE ]]; then
@@ -548,6 +575,7 @@ for esp in "${VLD_ESPS[@]}"; do
 			printf "$LINE\n" > "$FILE"
 		fi
 		mkdir -p "$TEMP/$LABEL"
+		BOOTSYNC=1
 	fi
 	FILE="$TEMP/boot/loader/loader.conf"
 	[[ -s $FILE ]] || echo > "$FILE"
@@ -567,22 +595,25 @@ for esp in "${VLD_ESPS[@]}"; do
 	unset CLEANUP[-1]
 done
 
-"${DNF[@]}" install git-core selinux-policy-devel gettext-envsubst
-chroot "$TEMP" bash -e <<- 'END'
-	shopt -s lastpipe
-	mktemp -p /tmp -d temp.XXX | read REPO
-	trap "rm -rf '$REPO'" exit
-	cd "$REPO"
-	git clone --depth 1 \
-		https://github.com/gregory-lee-bartholomew/bootsync.git .
-	make install
-	make sepolicy_install &> /dev/null || :
-END
+(
+	[[ $BOOTSYNC == 1 ]] || exit 1
+	"${DNF[@]}" install git-core selinux-policy-devel gettext-envsubst
+	chroot "$TEMP" bash -e <<- 'END'
+		shopt -s lastpipe
+		mktemp -p /tmp -d temp.XXX | read REPO
+		trap "rm -rf '$REPO'" exit
+		cd "$REPO"
+		git clone --depth 1 \
+			https://github.com/gregory-lee-bartholomew/bootsync.git .
+		make install
+		make sepolicy_install &> /dev/null || :
+	END
+) && :
 if [[ $? == 0 ]]; then
 	"${DNF[@]}" install efibootmgr rsync
 	CLEANUP+=("find '$TEMP/boot' -mindepth 1 -maxdepth 1 -exec rm -rf '{}' \;")
 	echo
-else
+elif [[ $BOOTSYNC == 1 ]]; then
 	FMT <<- END
 
 		$(B WARNING): bootsync was not installed. You might want to install it
