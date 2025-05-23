@@ -282,6 +282,136 @@ The `oscr` script can also be run from a Fedora Live image. To do so, first comp
 # reboot
 ```
 
+# Tips & Tricks
+
+Below are some optional enhancements that you might find useful on your Fedora-on-ZFS systems.
+
+## Make `/etc` a git repo that is backed by a separate ZFS dataset
+
+If you make your `/etc` directory a git repo as shown below, you can push your customizations to a local repo when you make them and then you will be able to recover them later if you rollback your OS.
+
+Substitute `root/0` to match the name of your root filesystem.
+
+```
+$ sudo -i
+# dnf install git-core rpmconf
+# cat <<- 'END' > ~/.gitconfig
+[user]
+name = Super User
+email = root@localhost
+END
+# zfs create -o mountpoint=legacy root/0-etc.git
+# sed -i "$ a root/0-etc.git /srv/etc.git zfs nofail 0 0" /etc/fstab
+# systemctl daemon-reload
+# mkdir /srv/etc.git
+# mount /srv/etc.git
+# git init -b main --bare /srv/etc.git
+# git init -b main /etc
+# bash -ec "cd /etc; git add .; git commit -m '$(printf '%(%FT%T)T')'; git push -u -f /srv/etc.git main;"
+# dnf install libdnf5-plugin-actions
+# cat <<- 'END' > /etc/dnf/libdnf5-plugins/actions.d/git.actions
+post_transaction:::enabled=host-only:/usr/bin/sh -ec cd\ /etc;\ git\ add\ .;\ git\ commit\ -m\ $(printf\ '%(%FT%T)T');\ git\ push\ -f;
+END
+# cat <<- 'END' > /usr/local/bin/rpmconf
+#!/usr/bin/bash
+
+command -p rpmconf "$@"
+set -e; cd /etc; git commit -a --amend --no-edit; git push -f;
+END
+# chmod +x /usr/local/bin/rpmconf
+# exit
+```
+
+To demo the system configured above, suppose you made a change to some file under `/etc` as shown below.
+
+```
+# cd /etc
+# cat <<- 'END' >> inputrc
+
+# do not encourage careless pasting of commands
+set enable-bracketed-paste off
+END
+# git add ./inputrc
+# git commit -m 'disable bracketed paste'
+# git push -f
+```
+
+If at some future point in time you roll back your root filesystem, you will be able to retrieve and re-apply your change from your git repo with commands similar to the following.
+
+```
+# cd /etc
+# git -C /srv/etc.git-YYYY-MM-DD log --oneline
+# git -C /srv/etc.git-YYYY-MM-DD show -p :/"disable bracketed paste" | patch -p 1
+patching file inputrc
+# git add ./inputrc
+# git commit -m 'disable bracketed paste'
+# git push -f
+```
+
+Note that you should run something like the following immediately after rolling back your root filesystem and before retrieving older changes to avoid confusion.
+
+```
+# umount /srv/etc.git
+# zfs rename root/0-etc.git "root/0-etc.git-$(printf '%(%F)T')"
+# sed -i "$ a root/0-etc.git-$(printf '%(%F)T') /srv/etc.git-$(printf '%(%F)T') zfs nofail 0 0" /etc/fstab
+# systemctl daemon-reload
+# mkdir "/srv/etc.git-$(printf '%(%F)T')"
+# mount "/srv/etc.git-$(printf '%(%F)T')"
+# zfs create -o mountpoint=legacy root/0-etc.git
+# mount /srv/etc.git
+# git init -b main --bare /srv/etc.git
+# rm -rf /etc/.git
+# git init -b main /etc
+# bash -ec "cd /etc; git add .; git commit -m '$(printf '%(%FT%T)T')'; git push -u -f /srv/etc.git main;"
+```
+
+## Turn an `oscr` instance into a Systemd container
+
+Substitue `root/1` and `root-1` to match the name of the OS instance you want to convert.
+
+Note that the ZFS commands (`zpool` and `zfs`) will not work from within the container. Many system calls will also be restricted.
+
+```
+$ sudo -i
+# dnf install systemd-container
+# zfs set mountpoint=/var/lib/machines/root-1 root/1
+# zfs mount root/1
+# mkdir /etc/systemd/nspawn
+# cat <<- END > /etc/systemd/nspawn/root-1.nspawn
+[Exec]
+PrivateUsers=identity
+
+[Files]
+Bind=/boot
+BindReadOnly=/etc/resolv.conf
+BindReadOnly=/dev/null:/etc/systemd/system/auditd.service
+BindReadOnly=/dev/null:/etc/systemd/system/audit-rules.service
+BindReadOnly=/dev/null:/etc/systemd/system/bootbind.service
+BindReadOnly=/dev/null:/etc/systemd/system/bootsync.service
+BindReadOnly=/dev/null:/etc/systemd/system/sshd.service
+
+[Network]
+VirtualEthernet=off
+END
+# machinectl start root-1; sleep 5;
+# machienctl login root-1
+```
+
+To revert the above changes and turn the container back into a bootable OS, use the following commands.
+
+```
+$ sudo -i
+# machinectl stop root-1; sleep 5;
+# touch /var/lib/machines/root-1/.autorelabel
+# zfs unmount root/1
+# zfs set mountpoint=/ root/1
+# exit
+```
+
+It is possible to run graphical applications in Systemd containers. I have not attempted it, but below is a link to a guide for running GUI apps under Systemd containers.
+
+- [How to set up nested Wayland Desktop Environment with systemd-nspawn container, like VirtualBox](https://stackoverflow.com/questions/43286518/how-to-set-up-nested-wayland-desktop-environment-with-systemd-nspawn-container)
+
 # Known Bugs
 
 In rare cases, I've seen systemd get confused about which is the correct machine-id for the running system after running the os?? scripts. A reboot will clear the problem, but one of the side-effects of the problem is that the normal `shutdown -r now` command does not work. As a workaround, `systemctl --force --force reboot` can be used to forcibly reboot your system.
