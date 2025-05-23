@@ -30,7 +30,7 @@ If you select the fedora-disk-minimal.ks kickstart, you will be prompted if you 
 
 This script will also configure the installed system to *exclude* ZFS and the Linux kernel from the normal `sudo dnf update` command. This is done because it is not uncommon for ZFS updates to fail on Fedora Linux when newer Linux kernels are availabe before ZFS is compatible with them. Instead, the user should use `zfs-update` to update ZFS and `kernel-update` to update the Linux kernel. These overrides and scripts are installed under /usr/local/bin. You can remove those scripts to revert this behavior if you so choose.
 
-**Note**: This installation script will install the **N-1** release of Fedora Linux by default. This is done intentionally because it can happen that the newest release will come with a kernel that is not yet supported by ZFS. All security patches are backported to the **N-1** release. If you want to try the newest release, you can specify the release version number of Fedora Linux you want to install as the first parameter to the `install` script. However, my recommendation would be to install the **N-1** release and then run `dnf upgrade --releasever=<N>` instead. (And take a snapshot of `root/0` before upgrading so that you can rollback your root filesystem in case it doesn't work. 😉)
+**Note**: This installation script will install the **N-1** release of Fedora Linux by default. This is done intentionally because it can happen that the newest release will come with a kernel that is not yet supported by ZFS. All security patches are backported to the **N-1** release. If you want to try the newest release, you can specify the release version number of Fedora Linux you want to install as the first parameter to the `install` script. However, my recommendation would be to install the **N-1** release and then run `dnf upgrade --releasever=<N>` instead. (And take a snapshot of `root/0` before upgrading so that you can roll back your root filesystem in case it doesn't work. 😉)
 
 **Note**: This installation script configures UEFI booting by default. If you need legacy BIOS booting, uncomment the `BIOSBOOT='biosboot.ks'` line in `config/evariables.conf`. Most PCs less than a decade old support the newer UEFI boot protocol.
 
@@ -288,7 +288,7 @@ Below are some optional enhancements that you might find useful on your Fedora-o
 
 ## Make `/etc` a git repo that is backed by a separate ZFS dataset
 
-If you make your `/etc` directory a git repo as shown below, you can push your customizations to a local repo when you make them and then you will be able to recover them later if you rollback your OS.
+If you make your `/etc` directory a git repo as shown below, you can push your customizations to a local repo when you make them and then you will be able to recover them later if you roll back your OS.
 
 Substitute `root/0` to match the name of your root filesystem.
 
