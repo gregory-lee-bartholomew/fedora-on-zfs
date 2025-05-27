@@ -266,7 +266,7 @@ $ sudo -i
 # exit
 ```
 
-As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf --exclude=kernel-core install @kde-desktop-environment` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
+As an example, after you have initialized a new Fedora Linux installation with `oscr`, you could reboot your computer and select it from the boot menu. Then you could sign-in as root on the console and use a command such as `dnf --exclude=kernel-core install @kde-desktop-environment; systemctl set-default graphical.target` to add the packages for a more complete operating system. You would also need to create a new user account for use with the new desktop environment.
 
 ---
 
@@ -290,18 +290,21 @@ Below are some optional enhancements that you might find useful on your Fedora-o
 
 If you make your `/etc` directory a git repo as shown below, you can push your customizations to a local repo when you make them and then you will be able to recover them later if you roll back your OS.
 
-Substitute `root/0` to match the name of your root filesystem.
+Substitute `POOL='root'` and `DSET='0'` to match your ZFS pool and root dataset, respectively.
 
 ```
 $ sudo -i
+# POOL='root'
+# DSET='0'
+# REPO="$POOL/${DSET//\//-}-etc.git"
 # dnf install git-core rpmconf
 # cat <<- 'END' > ~/.gitconfig
 [user]
 name = Super User
 email = root@localhost
 END
-# zfs create -o mountpoint=legacy root/0-etc.git
-# sed -i "$ a root/0-etc.git /srv/etc.git zfs nofail 0 0" /etc/fstab
+# zfs create -o mountpoint=legacy $REPO
+# sed -i "$ a $REPO /srv/etc.git zfs nofail 0 0" /etc/fstab
 # systemctl daemon-reload
 # mkdir /srv/etc.git
 # mount /srv/etc.git
@@ -325,6 +328,7 @@ END
 To demo the system configured above, suppose you made a change to some file under `/etc` as shown below.
 
 ```
+$ sudo -i
 # cd /etc
 # cat <<- 'END' >> inputrc
 
@@ -334,35 +338,51 @@ END
 # git add ./inputrc
 # git commit -m 'disable bracketed paste'
 # git push -f
+# exit
 ```
 
-If at some future point in time you roll back your root filesystem, you will be able to retrieve and re-apply your change from your git repo with commands similar to the following.
+If at some future point in time you roll back your root filesystem, you will be able to retrieve and re-apply your change from your git repo with commands similar to the ones shown in the following code block.
+
+Set `DATESTAMP='YYYY-MM-DD'` to point to the archive you created right after you rolled back your root dataset. (See the next paragraph for details about how such an archive might be created.)
 
 ```
+$ sudo -i
+# DATESTAMP='YYYY-MM-DD'
 # cd /etc
-# git -C /srv/etc.git-YYYY-MM-DD log --oneline
-# git -C /srv/etc.git-YYYY-MM-DD show -p :/"disable bracketed paste" | patch -p 1
+# git -C /srv/etc.git-$DATESTAMP log --oneline
+# git -C /srv/etc.git-$DATESTAMP show -p :/"disable bracketed paste" | patch -p 1
 patching file inputrc
 # git add ./inputrc
 # git commit -m 'disable bracketed paste'
 # git push -f
+# exit
 ```
 
-Note that you should run something like the following immediately after rolling back your root filesystem and before retrieving older changes to avoid confusion.
+Note that you should archive your current `etc.git` repo and create a new one using commands similar to the ones shown in the following code block immediately after rolling back your root filesystem and before retrieving older changes to avoid confusion.
+
+Substitute `POOL='root'` and `DSET='0'` to match your ZFS pool and root dataset, respectively.
 
 ```
+$ sudo -i
+# POOL='root'
+# DSET='0'
+# DATESTAMP="$(printf '%(%F)T')"
+# REPO="$POOL/${DSET//\//-}-etc.git"
+# ARCHIVE_REPO="$REPO-$DATESTAMP"
+# ARCHIVE_PATH="/srv/etc.git-$DATESTAMP"
 # umount /srv/etc.git
-# zfs rename root/0-etc.git "root/0-etc.git-$(printf '%(%F)T')"
-# sed -i "$ a root/0-etc.git-$(printf '%(%F)T') /srv/etc.git-$(printf '%(%F)T') zfs nofail 0 0" /etc/fstab
+# zfs rename "$REPO" "$ARCHIVE_REPO"
+# sed -i "$ a $ARCHIVE_REPO $ARCHIVE_PATH zfs nofail 0 0" /etc/fstab
 # systemctl daemon-reload
-# mkdir "/srv/etc.git-$(printf '%(%F)T')"
-# mount "/srv/etc.git-$(printf '%(%F)T')"
-# zfs create -o mountpoint=legacy root/0-etc.git
+# mkdir "ARCHIVE_PATH"
+# mount "ARCHIVE_PATH"
+# zfs create -o mountpoint=legacy $REPO
 # mount /srv/etc.git
 # git init -b main --bare /srv/etc.git
 # rm -rf /etc/.git
 # git init -b main /etc
 # bash -ec "cd /etc; git add .; git commit -m '$(printf '%(%FT%T)T')'; git push -u -f /srv/etc.git main;"
+# exit
 ```
 
 ## Turn an `oscr` instance into a Systemd container
