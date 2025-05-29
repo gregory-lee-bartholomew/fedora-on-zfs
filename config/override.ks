@@ -529,8 +529,23 @@ function _useradd {
 		return 1
 	fi
 
-	UNDO=(userdel -R "$ANACONDA_ROOT_PATH" -r "$USERNAME")
-	trap "stty echo; ${UNDO[*]} &> /dev/null; return 1" int
+	function undo {
+		root="$ANACONDA_ROOT_PATH"
+		home="/home/$USERNAME"
+		stty echo
+		{
+			if [[ $ENCRYPTION != on ]]; then
+				umount "$root$home"
+				rmdir "$root$home"
+				sed -i "\:\s$home\s:d" "$root/etc/fstab"
+			fi
+			zfs destroy "${ZFSROOT%%/*}/$USERNAME"
+			userdel -R "$root" -r "$USERNAME"
+		} &> /dev/null
+		printf "error: failed to create account '$USERNAME'\n\n"
+		sleep 3
+	}
+	trap "undo; return 1" int
 
 	stty -echo
 	perl <<- 'FIM'
@@ -539,31 +554,41 @@ function _useradd {
 
 		SAVED->autoflush(1);
 
-		my $pw;
+		my $encr = $ENV{'ENCRYPTION'} eq 'on';
+		my $pool = $ENV{'ZFSROOT'} =~ s{/.*$}{}r;
+		my $root = $ENV{'ANACONDA_ROOT_PATH'};
+		my $user = $ENV{'USERNAME'};
+		my $dset = "$pool/$user";
+		my $home = "/home/$user";
+		my $word = undef;
 
 		sub mkfs {
-			{
-				my @OPTS;
-				open STDOUT, '>&', SAVED || die;
-				if ($ENV{'ENCRYPTION'} eq 'on') {
-					last unless defined $pw;
-					push @OPTS, qw(
-						-o encryption=on
-						-o keylocation=prompt
-						-o keyformat=passphrase
-					);
-				}
-				push @OPTS, qq(-o mountpoint=/home/$ENV{'USERNAME'});
-				my $filesystem = $ENV{'ZFSROOT'} =~ s{/.*}{/$ENV{'USERNAME'}}r;
-				open P2, '|-',
-					qq(zfs create @OPTS $filesystem)
-				|| die;
-				if ($ENV{'ENCRYPTION'} eq 'on') {
-					print P2 $pw;
-				}
-				close P2;
+			my @opts;
+			open STDOUT, '>&', SAVED || die;
+			if ($encr) {
+				defined $word || die;
+				push @opts, "-o", "mountpoint=$home";
+				push @opts, qw(
+					-o encryption=on
+					-o keylocation=prompt
+					-o keyformat=passphrase
+				);
+			} else {
+				push @opts, "-o", "mountpoint=legacy";
+				open FSTAB, '>>', "$root/etc/fstab";
+				print FSTAB "$dset $home zfs nofail 0 0\n";
+				close FSTAB;
 			}
-			exit $?;
+			open P2, '|-', "zfs create @opts $dset" || die;
+			if ($encr) {
+				print P2 $word;
+			}
+			close P2 || die;
+			if (!$encr) {
+				mkdir "$root$home", '0000' || die;
+				system "chroot '$root' mount '$home' &> /dev/null";
+			}
+			exit 0;
 		}
 
 		# https://stackoverflow.com/a/33813246 (CC BY-SA 3.0)
@@ -575,8 +600,8 @@ function _useradd {
 				my $pass = 0;
 				while (<STDIN>) {
 					print SAVED "\n";
-					$pw = $_;
-					if (length($pw) > 8 || $pass > 0) {
+					$word = $_;
+					if (length($word) > 8 || $pass > 0) {
 						print;
 						$pass++;
 					} else {
@@ -591,8 +616,8 @@ function _useradd {
 				if (open STDIN, '<&', P1) {
 					{
 						system
-							'chroot', $ENV{'ANACONDA_ROOT_PATH'},
-							'/usr/bin/passwd', $ENV{'USERNAME'}
+							'chroot', $root,
+							'/usr/bin/passwd', $user
 						;
 						if ($? == 0) {
 							kill 'USR1', $p1;
@@ -600,7 +625,7 @@ function _useradd {
 						}
 						if ($? == 1) {
 							print
-								"failed to set $ENV{'USERNAME'}'s password, ",
+								"failed to set $user\'s password, ",
 								"retrying ...\n"
 							;
 							redo;
@@ -615,14 +640,12 @@ function _useradd {
 	FIM
 	stty echo
 
+	trap "" int
+
 	if ! mountpoint -q "$ANACONDA_ROOT_PATH/home/$USERNAME"; then
-		"${UNDO[@]}" &> /dev/null
-		printf "error: failed to create account '$USERNAME'\n\n"
-		sleep 3
+		undo
 		return 1
 	fi
-
-	trap - int
 
 	cat <<- 'END' | chroot "$ANACONDA_ROOT_PATH" /usr/bin/bash
 		shopt -s dotglob
@@ -675,6 +698,8 @@ while
 		  dots (.), dashes (-), and underscores (_) are also allowed
 		- be 32 characters or less
 
+		The display name must not contain a comma (,).
+
 		Press [1mctrl-c[22m to abort or end creating accounts.
 
 	END
@@ -696,14 +721,13 @@ while
 		}gx;
 	FIM
 do
-	trap "continue" int
+	trap "" int
 	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
 		if [[ ${#ARGS[@]} -gt 1 ]] && [[ ${ARGS[0]} != -* ]]; then
 			printf 'error: the username must be the last parameter\n\n'
 			continue
 		fi
-		trap - int
-		_useradd "${ARGS[@]}"
+		(_useradd "${ARGS[@]}")
 	else
 		printf '\n\n'
 		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd --help \
