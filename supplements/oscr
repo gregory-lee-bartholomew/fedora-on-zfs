@@ -624,8 +624,7 @@ fi
 
 mktemp -p "$WORKING" -d temp.XXX | read REPO
 CLEANUP+=("rm -rf '$REPO'")
-(
-	set -e
+bash -e <<- END && :
 	cd "$REPO"
 	git clone --no-checkout --depth 1 \
 		https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git .
@@ -634,7 +633,7 @@ CLEANUP+=("rm -rf '$REPO'")
 	cd supplements
 	install -v * "$TEMP/usr/local/bin" | sed "s|$TEMP||"
 	echo
-)
+END
 [[ $? != 0 ]] && FMT <<- END
 	$(B WARNING): Fedora-on-ZFS supplements were not installed. You might
 	want to retrieve them from
