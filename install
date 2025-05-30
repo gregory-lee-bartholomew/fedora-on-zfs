@@ -452,6 +452,11 @@ if [[ $RV -ge 42 ]]; then
 	echo
 fi
 
+# allow remoting into the installer for debugging
+if [[ -s updates/etc/shadow ]]; then
+	sed -i '/^root:/ { s/:[^:]*:/::/; }' updates/etc/shadow
+fi
+
 # create the "updates" overlay that contains most of the anaconda overrides
 (cd updates; find . | cpio -oc --quiet --file="../$RV/images/updates.img")
 
