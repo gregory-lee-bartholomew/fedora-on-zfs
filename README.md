@@ -403,8 +403,8 @@ $ sudo -i
 # zfs rename "$REPO" "$ARCHIVE_REPO"
 # sed -i "$ a $ARCHIVE_REPO $ARCHIVE_PATH zfs nofail 0 0" /etc/fstab
 # systemctl daemon-reload
-# mkdir "ARCHIVE_PATH"
-# mount "ARCHIVE_PATH"
+# mkdir "$ARCHIVE_PATH"
+# mount "$ARCHIVE_PATH"
 # zfs create -o mountpoint=legacy $REPO
 # mount /srv/etc.git
 # git init -b main --bare /srv/etc.git
