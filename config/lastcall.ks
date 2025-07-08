@@ -37,6 +37,7 @@ mount -a &> /dev/null
 
 # remove some incompatible packages and ban them from future installation
 XXX=(
+	'shim-*'
 	'grub2-*'
 	'os-prober'
 	'grubby'
