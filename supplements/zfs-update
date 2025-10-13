@@ -31,7 +31,7 @@ fi
 	} &> /dev/null
 	ls fedora \
 		| grep -o "zfs-release[[:alnum:]\-]*.fc$VERSION_ID.noarch.rpm" \
-		| sort -r -t '.' -k 2 \
+		| sort -r -t '.' -k 1,1 \
 		| read RPM
 	if ! command -p rpm -q "${RPM%\.rpm}" &> /dev/null; then
 		command -p rpm -U "fedora/$RPM"
