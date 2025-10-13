@@ -53,6 +53,11 @@ printf '\n'
 (IFS=','; "${DNF[@]}" config-manager setopt "excludepkgs=${XXX[*]}";)
 printf '\n'
 
+# https://bugzilla.redhat.com/show_bug.cgi?id=2369250
+FILE='/etc/dkms/framework.conf.d/override.conf'
+mkdir -p "${FILE%/*}"
+printf '%s\n' 'post_transaction=""' > "${FILE}"
+
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
 read -r -n 1 -p \
