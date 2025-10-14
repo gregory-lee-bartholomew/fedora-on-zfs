@@ -305,7 +305,7 @@ root/0@6.14.4-300.fc42.x86_64  2.43G      -  12.0G  -
 root/0@6.14.6-300.fc42.x86_64  57.6M      -  11.5G  -
 ```
 
-Beware that keeping the snapshots will gradually use more and more disk space. You will need to manually delete old snapshots with a command similar to the following to prevent your system from (eventually) running out of space (substitute the snapshot name according to what is listed in your output from the above command).
+Beware that keeping the snapshots will gradually use more and more disk space. You will need to manually delete old snapshots with a command similar to the following to prevent your system from (eventually) running out of space (substitute the snapshot name according to what is listed in your output from the above command).\*
 
 ```
 $ sudo zfs destroy root/0@6.14.4-300.fc42.x86_64
@@ -313,7 +313,9 @@ $ sudo zfs destroy root/0@6.14.4-300.fc42.x86_64
 
 Also, beware that this mechanism will *not* automatically snapshot decendant filesystems. To create snapshots of your home director(y/ies), consider creating a cron job or perhaps a systemd service that runs when you sign out.
 
-To roll back your OS, highlight the kernel that you want to roll back to from your boot menu, press <kbd>E</kbd> (or <kbd>Tab</kbd> if using Syslinux), and change `bootfs.snapshot` to `bootfs.rollback`. If the version you roll back to is not the lastest snapshot/kernel, you will need to manually remove any newer kernels, initramfses, and boot configuration snippets from your ESPs since their corresponding modules will no longer exist under /lib/modules on the root filesystem.
+To roll back your OS, highlight the kernel that you want to roll back to from your boot menu, press <kbd>E</kbd> (or <kbd>Tab</kbd> if using Syslinux), and change `bootfs.snapshot` to `bootfs.rollback`. If the version you roll back to is not the lastest snapshot/kernel, you will need to manually remove any newer kernels, initramfs images, and boot configuration snippets from your ESPs since their corresponding modules will no longer exist under /lib/modules on the root filesystem.
+
+\* *With version 2.9 of this installer script, a `/etc/kernel/install.d/89-snapshot-remove.install` script has been added, but it is not enabled by default. Use `sudo chmod +x /etc/kernel/install.d/89-snapshot-remove.install` to enable it. It will automatically remove the OS snapshot when the corresponding kernel is removed.*
 
 ## Make `/etc` a git repo that is backed by a separate ZFS dataset
 

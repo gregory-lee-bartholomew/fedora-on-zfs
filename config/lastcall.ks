@@ -58,6 +58,38 @@ FILE='/etc/dkms/framework.conf.d/override.conf'
 mkdir -p "${FILE%/*}"
 printf '%s\n' 'post_transaction=""' > "${FILE}"
 
+# the following script is not enabled by default because it is destructive.
+# use sudo chmod +x /etc/kernel/install.d/89-snapshot-remove.install
+# to enable it. see the main readme for more info about what it is for.
+FILE='/etc/kernel/install.d/89-snapshot-remove.install'
+cat <<- 'END' > "$FILE"
+	#!/usr/bin/sh
+
+	set -e
+
+	trap 'exit 0' exit
+
+	COMMAND="${1:?}"
+	KERNEL_VERSION="${2:?}"
+
+	[ "$COMMAND" = "remove" ]
+	[ "$KERNEL_INSTALL_LAYOUT" = "bls" ]
+
+	ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+	BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+	LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+	ROOTFS=''
+	for option in $(grep '^options\s' "$LOADER_ENTRY"); do
+	  ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+	done
+
+	[ -n "$ROOTFS" ]
+
+	zfs destroy "$ROOTFS@$KERNEL_VERSION"
+END
+
 # updates are done last so earlier stages of the installation will be
 # predicable/reproducible.
 read -r -n 1 -p \
