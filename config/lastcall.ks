@@ -99,7 +99,7 @@ if [[ $ANSWER == y ]]; then
 	"${DNF[@]}" \
 		--disablerepo=zfs* \
 		--exclude=kernel* \
-		--exclude=audit --exclude=audit-libs \
+		-x audit -x audit-libs -x audit-rules -x python3-audit \
 		distro-sync
 	"${DNF[@]}" install rpmconf
 	rpmconf -a -u use_maintainer
