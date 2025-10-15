@@ -680,8 +680,8 @@ done
 printf '\n'
 
 # ask to create additional accounts
+exec {input}<&0
 while
-	trap "break" int
 	cat <<- 'END'
 
 		To create a user account, enter a username now.
@@ -703,25 +703,11 @@ while
 		Press [1mctrl-c[22m to abort or end creating accounts.
 
 	END
-	# get user input as an array (preserving quoted strings)
-	# https://perldoc.perl.org/perlre#Regular-Expressions
-	printf 'useradd: '; perl <<- 'FIM' | readarray -t -d $'\0' ARGS
-		$SIG{__DIE__} = sub { kill 'INT', getppid; };
-		open STDIN, '<', '/dev/ttyS0' || die;
-		$\  = "\x00"; # output record separator
-		$sp = "\x20"; # space
-		$dq = "\x22"; # double quote
-		$sq = "\x27"; # single quote
-		$dl = $sp . $dq . $sq; # delimiters
-		$in = <> =~ s{[\x00-\x1f\x7f]}{$sp}gr; # input (sanitized)
-		print foreach " $in " =~ m{
-			(?<=$sq)(?:[^$sq\\]++|\\.)*+(?=$sq) |
-			(?<=$dq)(?:[^$dq\\]++|\\.)*+(?=$dq) |
-			(?<=$sp)(?:[^$dl\\]++|\\.)++(?=$sp)
-		}gx;
-	FIM
+	trap 'exec {input}<&-' int
+	read -e -u "$input" -p 'useradd: ' userspec
 do
-	trap "" int
+	trap '' int
+	printf -- "$userspec" | xargs -r -n 1 printf -- '%s\n' | readarray -t ARGS
 	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
 		if [[ ${#ARGS[@]} -gt 1 ]] && [[ ${ARGS[0]} != -* ]]; then
 			printf 'error: the username must be the last parameter\n\n'
@@ -741,6 +727,7 @@ do
 	printf '\n'
 done
 trap - int
+exec {input}<&-
 printf '\n'
 
 printf "\n\e[0;97;7m finished $SELF \e[0m\n\n"
