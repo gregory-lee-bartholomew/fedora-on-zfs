@@ -355,6 +355,16 @@ for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
 done
 printf '\n'
 
+# prevent the ssh host fingerprint of the installer
+# from changing between one run and the next
+if ! [[ -e updates/etc/ssh ]]; then
+	mkdir -p 'updates/etc/ssh'
+	ssh-keygen -A -f 'updates' || :
+	printf '\n'
+fi
+
+cp -r updates "$RV"
+
 # fetch the gpg rpms and extract the gpg keys
 trap -p err | read -r PREVIOUS_ERR_TRAP || :
 trap "printf '%s\n' \
@@ -415,7 +425,7 @@ done
 printf '\n'
 
 # ask the user to verify the keys
-KEYSDIR='updates/etc/pki/rpm-gpg'
+KEYSDIR="$RV/updates/etc/pki/rpm-gpg"
 which gpg 1>/dev/null
 rm -rf "$KEYSDIR"
 mkdir -p "$KEYSDIR"
@@ -437,14 +447,6 @@ for key in "${KEYS[@]}"; do
 done
 printf '\n'
 
-# prevent the ssh host fingerprint of the installer
-# from changing between one run and the next (2222)
-if ! [[ -e updates/etc/ssh ]]; then
-	mkdir -p 'updates/etc/ssh'
-	ssh-keygen -A -f 'updates' || :
-	printf '\n'
-fi
-
 # dnf was removed from install.img for Fedora Linux 42+
 if [[ $RV -ge 42 ]]; then
 	dnf5 \
@@ -452,18 +454,21 @@ if [[ $RV -ge 42 ]]; then
 		--use-host-config \
 		--repo=fedora \
 		--releasever="$RV" \
-		--installroot="$PWD/updates" \
+		--installroot="$PWD/$RV/updates" \
 		install dnf5 2>&1 1> /dev/null | grep -v '^[^[:alnum:] ]'
 	echo
 fi
 
 # allow remoting into the installer for debugging
-if [[ -s updates/etc/shadow ]]; then
-	sed -i '/^root:/ { s/:[^:]*:/::/; }' updates/etc/shadow
+if [[ -s $RV/updates/etc/shadow ]]; then
+	sed -i '/^root:/ { s/:[^:]*:/::/; }' "$RV/updates/etc/shadow"
 fi
 
 # create the "updates" overlay that contains most of the anaconda overrides
-(cd updates; find . | cpio -oc --quiet --file="../$RV/images/updates.img")
+if cd "$RV/updates"; then
+	find . | cpio -oc --quiet --file="../images/updates.img"
+	cd ../..
+fi
 
 # initialize the firmware data for qemu
 mkdir -p "$RV/efi"
