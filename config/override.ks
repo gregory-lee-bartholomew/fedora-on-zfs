@@ -499,6 +499,7 @@ stty sane
 SELF='scripts/post/4.sh'
 printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
 
+set -o pipefail
 shopt -s lastpipe
 
 function _useradd {
@@ -704,10 +705,11 @@ while
 
 	END
 	trap 'exec {input}<&-' int
-	read -e -u "$input" -p 'useradd: ' userspec
+	read -r -e -u "$input" -p 'useradd: ' userspec
 do
 	trap '' int
-	printf -- "$userspec" | xargs -r -n 1 printf -- '%s\n' | readarray -t ARGS
+	xargs -r -n 1 printf -- '%s\n' <<< "$userspec" \
+		| readarray -t ARGS || continue
 	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
 		if [[ ${#ARGS[@]} -gt 1 ]] && [[ ${ARGS[0]} != -* ]]; then
 			printf 'error: the username must be the last parameter\n\n'
