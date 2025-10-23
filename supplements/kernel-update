@@ -43,6 +43,7 @@ if [[ $UPDATE != y ]]; then
 fi
 
 command -p dnf -y --repo=updates update kernel\* || exit 1
+rpm -q "kernel-$KERNEL" || exit 1
 
 RETRIES=0
 while ! lsinitrd -m -k "$KERNEL" 2> /dev/null | grep -qx 'zfs'; do
