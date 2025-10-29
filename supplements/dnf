@@ -5,6 +5,20 @@ UPDATE=0
 NUMARG=0
 FILTER=()
 
+if [[ -x /usr/bin/curl ]] && [[ -x /usr/bin/md5sum ]]; then
+	printf -v UPSTREAM '%s' \
+		https://raw.githubusercontent.com \
+		/gregory-lee-bartholomew/fedora-on-zfs \
+		/refs/heads/main/supplements/${0##*/}
+	if [[ $(curl -s "$UPSTREAM" | md5sum) != $(cat "$0" | md5sum) ]]; then
+		cat <<- END
+
+			notice: differences detected between $0 and upstream
+
+		END
+	fi
+fi
+
 if [[ $(command -p id -u) != 0 ]]; then
 	cat <<- END 1>&2
 		${0##*/} must be run as root.
