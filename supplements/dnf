@@ -5,6 +5,17 @@ UPDATE=0
 NUMARG=0
 FILTER=()
 
+[[ $* =~ --complete ]] && exec command -p dnf "$@"
+
+if [[ $(command -p id -u) != 0 ]]; then
+	cat <<- END
+
+		${0##*/} must be run as root.
+
+	END
+	exit 1
+fi
+
 if [[ -x /usr/bin/curl ]] && [[ -x /usr/bin/md5sum ]]; then
 	printf -v UPSTREAM '%s' \
 		https://raw.githubusercontent.com \
@@ -17,13 +28,6 @@ if [[ -x /usr/bin/curl ]] && [[ -x /usr/bin/md5sum ]]; then
 
 		END
 	fi
-fi
-
-if [[ $(command -p id -u) != 0 ]]; then
-	cat <<- END 1>&2
-		${0##*/} must be run as root.
-	END
-	exit 1
 fi
 
 if ! [[ $* =~ --installroot ]]; then
