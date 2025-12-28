@@ -73,6 +73,20 @@ fi
 : "${ARCHIVE:?}"
 : "${RELEASE:?}"
 
+printf -v ZFSREPO '%s' \
+	https://github.com/zfsonlinux \
+	/zfsonlinux.github.com/raw \
+	/master/fedora/$ARCHIVE.rpm
+
+if ! curl -ILs --fail "$ZFSREPO" &> /dev/null; then
+	FMT <<- END 1>&2
+
+		$(B ERROR): Failed to download $ZFSREPO
+
+	END
+	exit 1
+fi
+
 TARGET="$1"; shift; ! zfs list -H -o name | grep -qx "$TARGET"; [[ $? == 0 ]]
 T_POOL="${TARGET%%/*}"; zpool list -H -o name | grep -qx "$T_POOL"
 
@@ -513,7 +527,7 @@ for esp in "${VLD_ESPS[@]}"; do
 		Creating a new boot menu entry and initramfs image on $esp ...
 	END
 	if [[ $esp == ${VLD_ESPS[0]} ]]; then
-		"${DNF[@]}" install "https://zfsonlinux.org/fedora/$ARCHIVE.rpm"
+		"${DNF[@]}" install "$ZFSREPO"
 		DNF+=('--repo=zfs')
 		"${DNF[@]}" install \
 			systemd-boot-unsigned \
