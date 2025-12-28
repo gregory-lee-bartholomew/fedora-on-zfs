@@ -565,7 +565,7 @@ for esp in "${VLD_ESPS[@]}"; do
 			"/boot " \
 			"vfat " \
 			"$(IFS=','; echo "${MNT_OPTS[*]}")," \
-			"nofail " \
+			"noexec,nodev,nosuid,nosymfollow,nofail " \
 			"0 0"
 		if [[ -s $FILE ]]; then
 			sed -i '
@@ -582,7 +582,7 @@ for esp in "${VLD_ESPS[@]}"; do
 			"vfat " \
 			"$(IFS=','; echo "${MNT_OPTS[*]}")," \
 			"x-systemd.before=bootbind.service," \
-			"nofail " \
+			"noexec,nodev,nosuid,nosymfollow,nofail " \
 			"0 0"
 		if [[ -s $FILE ]]; then
 			sed -i '

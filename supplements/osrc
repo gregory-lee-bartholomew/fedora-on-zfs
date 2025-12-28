@@ -492,7 +492,7 @@ for esp in "${VLD_ESPS[@]}"; do
 			"shortname=lower," \
 			"flush," \
 			"discard," \
-			"nofail " \
+			"noexec,nodev,nosuid,nosymfollow,nofail " \
 			"0 0"
 		if [[ -s $FILE ]]; then
 			sed -i '

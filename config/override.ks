@@ -309,7 +309,7 @@ for disk in /dev/vd[a-z]; do
 		shortname=lower,\
 		flush,\
 		discard,\
-		nofail \
+		noexec,nodev,nosuid,nosymfollow,nofail \
 		0 0
 	END
 	if mount /${name} &> /dev/null; then
