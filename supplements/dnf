@@ -7,6 +7,8 @@ FILTER=()
 
 [[ $* =~ --complete ]] && exec command -p dnf "$@"
 
+shopt -s lastpipe
+
 if [[ $(command -p id -u) != 0 ]]; then
 	cat <<- END
 
@@ -74,7 +76,8 @@ if [[ $UPDATE == 1 ]]; then
 	done
 
 	FILTER=('--exclude=kernel*')
-	if ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
+	dnf repo list --enabled 'zfs*' | readarray -t ZREPOS
+	if [[ ${#ZREPOS[@]} -gt 0 ]] && ! [[ $* =~ --repo ]] && ! [[ $* =~ --repoid ]]; then
 		FILTER+=('--disablerepo=zfs*')
 	fi
 fi
