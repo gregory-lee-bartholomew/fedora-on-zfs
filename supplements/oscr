@@ -439,12 +439,23 @@ fi
 "${DNF[@]}" group install core \
 	|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) | read -r -d '' STATUS || :
 if [[ ${STATUS,,} =~ failed ]]; then
-	FMT <<- END 1>&2
+	if [[ ${OSCR_IGNORE_FAILED,,} =~ ^(true|yes|on|1)$ ]]; then
+		FMT <<- END 1>&2
 
-		$(B ERROR): Failure detected, aborting installation ...
+			$(B WARNING): Failure detected. This should probably be reported.
 
-	END
-	exit 1
+		END
+	else
+		FMT <<- END 1>&2
+
+			$(B ERROR): Failure detected, aborting installation ...
+
+			You can use "export OSCR_IGNORE_FAILED=1" to ignore the error.
+			Installing the previous OS release might be a better option.
+
+		END
+		exit 1
+	fi
 fi
 
 "${DNF[@]}" install "$MGR"
@@ -536,12 +547,23 @@ for esp in "${VLD_ESPS[@]}"; do
 				|& tee >(sed 's/failed/[31m&[39m/Ig' 1>&2) \
 				| read -r -d '' STATUS || :
 		if [[ ${STATUS,,} =~ failed ]]; then
-			FMT <<- END 1>&2
+			if [[ ${OSCR_IGNORE_FAILED,,} =~ ^(true|yes|on|1)$ ]]; then
+				FMT <<- END 1>&2
 
-				$(B ERROR): Failure detected, aborting installation ...
+					$(B WARNING): Failure detected. This should probably be reported.
 
-			END
-			exit 1
+				END
+			else
+				FMT <<- END 1>&2
+
+					$(B ERROR): Failure detected, aborting installation ...
+
+					You can use "export OSCR_IGNORE_FAILED=1" to ignore the error.
+					Installing the previous OS release might be a better option.
+
+				END
+				exit 1
+			fi
 		fi
 		# https://bugzilla.redhat.com/show_bug.cgi?id=2369250
 		cat <<- 'END' > "$TEMP/etc/dkms/framework.conf.d/override.conf"
