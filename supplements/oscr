@@ -543,6 +543,10 @@ for esp in "${VLD_ESPS[@]}"; do
 			END
 			exit 1
 		fi
+		# https://bugzilla.redhat.com/show_bug.cgi?id=2369250
+		cat <<- 'END' > /etc/dkms/framework.conf.d/override.conf
+			post_transaction=""
+		END
 		chroot "$TEMP" rpm -q --qf="%{evr}.%{arch}\n" kernel-core \
 			| sort -r --version-sort | read KVER
 	else
