@@ -704,7 +704,7 @@ while
 		Press [1mctrl-c[22m to abort or end creating accounts.
 
 	END
-	trap 'exec {input}<&-' int
+	trap 'exec {input}<&-; printf "\e[G\e[Kcaught ctrl-c ...\n"; break;' int
 	read -r -e -u "$input" -p 'useradd: ' userspec
 do
 	trap '' int
