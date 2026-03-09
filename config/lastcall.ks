@@ -47,9 +47,10 @@ XXX=(
 rpm -qa | grep "${XXX[@]/*/--regexp=^&-}" | xargs -r rpm -e
 DNF=('/usr/bin/dnf' '-q' '-y')
 readlink "${DNF[0]}" | grep -o '[0-9]\+$' | read VER
-[[ $VER -lt 5 ]] && VER=''
-"${DNF[@]}" install "dnf$VER-command(config-manager)"
-printf '\n'
+if [[ $VER -lt 5 ]]; then
+	"${DNF[@]}" install "dnf-command(config-manager)"
+	printf '\n'
+fi
 (IFS=','; "${DNF[@]}" config-manager setopt "excludepkgs=${XXX[*]}";)
 printf '\n'
 
