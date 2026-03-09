@@ -46,6 +46,7 @@ XXX=(
 	'anaconda'
 	'anaconda-*'
 	'kdump-anaconda-addon'
+	'initial-setup'
 )
 rpm -qa | grep "${XXX[@]/*/--regexp=^&-}" | xargs -r rpm -e
 DNF=('/usr/bin/dnf' '-q' '-y')
