@@ -43,6 +43,9 @@ XXX=(
 	'grubby'
 	'dracut-config-rescue'
 	'zfs-fuse'
+	'anaconda'
+	'anaconda-*'
+	'kdump-anaconda-addon'
 )
 rpm -qa | grep "${XXX[@]/*/--regexp=^&-}" | xargs -r rpm -e
 DNF=('/usr/bin/dnf' '-q' '-y')
