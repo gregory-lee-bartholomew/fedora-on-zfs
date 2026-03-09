@@ -701,13 +701,12 @@ while
 
 		The display name must not contain a comma (,).
 
-		Press [1mctrl-c[22m to abort or end creating accounts.
+		Press [1mctrl-c[22m to cancel an in-progress account creation.
+		Press [1mctrl-d[22m to end creating accounts.
 
 	END
-	trap 'exec {input}<&-; printf "\e[G\e[Kcaught ctrl-c ...\n"; break;' int
 	read -r -e -u "$input" -p 'useradd: ' userspec
 do
-	trap '' int
 	xargs -r -n 1 printf -- '%s\n' <<< "$userspec" \
 		| readarray -t ARGS || continue
 	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
@@ -716,6 +715,7 @@ do
 			continue
 		fi
 		(_useradd "${ARGS[@]}")
+		trap '' int
 	else
 		printf '\n\n'
 		chroot "$ANACONDA_ROOT_PATH" /usr/sbin/useradd --help \
