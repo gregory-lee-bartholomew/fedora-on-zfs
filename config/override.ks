@@ -682,6 +682,7 @@ printf '\n'
 
 # ask to create additional accounts
 exec {input}<&0
+trap '' int
 while
 	cat <<- 'END'
 
