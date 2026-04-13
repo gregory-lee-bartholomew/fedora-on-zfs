@@ -715,7 +715,7 @@ do
 			printf 'error: the username must be the last parameter\n\n'
 			continue
 		fi
-		(_useradd "${ARGS[@]}")
+		_useradd "${ARGS[@]}"
 		trap '' int
 	else
 		printf '\n\n'
