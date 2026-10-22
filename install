@@ -1155,15 +1155,15 @@ if [[ -e $UEFI ]] && type efibootmgr &> /dev/null; then
 				efibootmgr -b "${BASH_REMATCH[1]}" -B > /dev/null || :
 			fi
 		done
-		INDEX=0
+		INDEX=$((${#DRIVES[*]}-1))
 		LETTERS=({A..Z})
 		LOADER="/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi"
-		while [[ -n ${DRIVES[$INDEX]} ]]; do
+		while (( INDEX >= 0 )); do
 			LABEL="SD-BOOT ${LETTERS[$INDEX]:-?}"
 			DRIVE="${DRIVES[$INDEX]}"
 			printf 'adding "%s" -> (%s, partition 1):%s\n' "$LABEL" "$DRIVE" "$LOADER"
 			efibootmgr -c -L "$LABEL" -d "$DRIVE" -l "$LOADER" | readarray STATUS
-			INDEX=$((INDEX+1))
+			INDEX=$((INDEX-1))
 		done
 		printf '%s' "\n" "${STATUS[@]}"
 	fi
