@@ -219,7 +219,7 @@ fi
 	'https://github.com/gregory-lee-bartholomew/bootsync.git'
 printf '\n'
 
-ENCRYPTION='off'
+ENCRYPTION=''
 if [[ $ENVIRONMENT == sway-desktop ]]; then
 	tr -d '\t' <<- END
 		I see you selected the ${ENVIRONMENT} environment.
@@ -1171,6 +1171,7 @@ fi
 
 cat <<- END
 
-	The installation of $ENVIRONMENT-environment on ${DRIVES[*]} is complete!
+	The installation of [1m$ENVIRONMENT-environment[22m${ENCRYPTION:+ (with homelock)}
+	on [1m${DRIVES[*]}[22m is complete!
 
 END
