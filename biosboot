@@ -1,35 +1,39 @@
+#!/usr/bin/bash
 # vim:set ts=3 sw=3:
 
-%post --interpreter=/usr/bin/bash --erroronfail
+if [[ $(ps -p $PPID -o comm=) != install ]]; then
+	cat <<- END
+		ERROR: This script is not meant to be run directly.
+		This script is called by the main 'install' script
+		if BIOSBOOT='true' is set in config/evariables.conf
 
-exec &> /dev/ttyS0
-
-SELF='scripts/post/5.sh'
-printf "\n\e[0;97;7m starting $SELF \e[0m\n\n"
-
-set -e
-trap 'printf "an error has occurred on line ${LINENO} of $SELF\n"' err
-
-shopt -s lastpipe
+	END
+	exit 1
+fi
 
 cat <<- 'END'
-	biosboot support has been requested
+	[1mBIOSBOOT SUPPORT HAS BEEN REQUESTED[22m
 
-	note: any failures from this point on will [3monly[23m affect the BIOS
-	bootloader. the UEFI bootloader and the rest of the os are complete.
+	NOTE: Any failures from this point on will [3monly[23m affect the BIOS
+	bootloader. The UEFI bootloader and the rest of the OS are complete.
 
 END
 
-cd '/root'
+shopt -so errexit
+shopt -s lastpipe
+shopt -s extglob
+
+trap 'printf "an error has occurred on line ${LINENO} of ${0##*/}\n"' err
+
+cd /root
+rm -rf /tmp/syslinux
 MARK="$ZFSROOT@syslinux-build"
 zfs snapshot "$MARK"
 DNF=(dnf
 	--assumeyes
 	--repo=fedora
 )
-SLVER=''
-[[ $RELEASEVER -eq 40 ]] && SLVER='41' # the F40 syslinux package fails to build
-"${DNF[@]}" ${SLVER:+--releasever=$SLVER} download --source 'syslinux'
+"${DNF[@]}" download --source 'syslinux'
 DNF+=(
 	--nodocs
 	--setopt install_weak_deps=false
@@ -37,43 +41,44 @@ DNF+=(
 "${DNF[@]}" install rpmdevtools mock
 TOPDIR="$PWD/rpmbuild"
 mkdir -p $TOPDIR/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS}
-ln -s '/tmp' "$TOPDIR/SRPMS"
+ln -s /tmp "$TOPDIR/SRPMS"
 cd "$TOPDIR"
 rpm --define "_topdir $TOPDIR" -ivh ../syslinux-*.src.rpm
 cp -v ../biosboot-patches/*.patch SOURCES
 export SPEC="$(find SPECS -name '*.spec' -print -quit)"
 perl -0 <<- 'FIM'
-        opendir DH, 'SOURCES';
-        $PATCHES = join '',
-                map { 'Patch' . substr($_, 0, 4) . ": $_\n" }
-                sort grep { m{\.patch$} } readdir DH
-        ;
-        closedir DH;
-        open FH, '+<', $ENV{'SPEC'};
-        $BUFFER = <FH>;
-        $BUFFER =~ s{^(Patch[0-9]{4}: .*?\n)+}{$PATCHES}m;
-        $BUFFER =~ s{^(Release): .*$}{$1: 1.0.fc00}m;
-        seek FH, 0, 0;
-        truncate FH, 0;
-        print FH $BUFFER;
-        close FH;
+	opendir DH, 'SOURCES';
+	$PATCHES = join '',
+		map { 'Patch' . substr($_, 0, 4) . ": $_\n" }
+		sort grep { m{\.patch$} } readdir DH
+	;
+	closedir DH;
+	open FH, '+<', $ENV{'SPEC'};
+	$BUFFER = <FH>;
+	$BUFFER =~ s{^(Patch[0-9]{4}: .*?\n)+}{$PATCHES}m;
+	$BUFFER =~ s{^(Release): .*$}{$1: 1.0.fc00}m;
+	seek FH, 0, 0;
+	truncate FH, 0;
+	print FH $BUFFER;
+	close FH;
 FIM
 rpmbuild --define "_topdir $TOPDIR" -bs --target x86_64 --nodeps "$SPEC"
-find '/tmp' -name 'syslinux-*.src.rpm' | readarray -t SL
+find /tmp -name 'syslinux-*.src.rpm' | readarray -t SL
 
 if [[ ${#SL[*]} -eq 1 ]]; then
-		mkdir /tmp/syslinux
-		mock \
-			-r "fedora-$RELEASEVER-x86_64" \
-			--isolation='simple' \
-			--resultdir='/tmp/syslinux' \
-			--no-cleanup-after \
-			--rebuild "${SL[0]}"
+	mkdir /tmp/syslinux
+	mock \
+		-r "fedora-$RV-x86_64" \
+		--enable-network \
+		--isolation='simple' \
+		--resultdir='/tmp/syslinux' \
+		--no-cleanup-after \
+		--rebuild "${SL[0]}"
 fi
 
 printf '\n'
 
-find '/tmp/syslinux' -name 'syslinux-nonlinux-*.noarch.rpm' \
+find /tmp/syslinux -name 'syslinux-nonlinux-*.noarch.rpm' \
 	| readarray -t SLNL
 
 if [[ ${#SLNL[*]} -eq 1 ]]; then
@@ -85,16 +90,16 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 	mv "${SLNL[0]}" /root
 
 	cat <<- 'END'
-		good news! the compile of the custom syslinux-nonlinux package
+		Good news! The compile of the custom syslinux-nonlinux package
 		with bootloader type 1 support was successful.
 
-		we'll install the normal "syslinux" package that is shipped with
-		the distro. but we'll replace the "syslinux-nonlinux" subpackage
-		with our custom build. (it contains the 32-bit .c32 modules that
+		We'll install the normal "syslinux" package that is shipped with
+		the distro. But we'll replace the "syslinux-nonlinux" subpackage
+		with our custom build. (It contains the 32-bit .c32 modules that
 		are located under /usr/share/syslinux.)
 
-		this custom syslinux-nonlinux package has been saved under /root
-		so you can reinstall it if you ever need to. (but you shouldn't
+		This custom syslinux-nonlinux package has been saved under /root
+		so you can reinstall it if you ever need to. (But you shouldn't
 		need to.)
 
 	END
@@ -122,9 +127,10 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 
 	rpm -q --quiet gdisk || dnf install -q -y gdisk
 	BINS="/usr/share/syslinux"
-	for disk in /dev/vd[a-z]; do
-		part="${disk}1"
+	for disk in $DEVDIR/vd[a-z]; do
 		base="/boot@${disk: -1}"
+		disk="$(realpath "$disk")"
+		part="${disk}1"
 		mountpoint -q "$base" || mount "$base"
 		mkdir -p "$base/syslinux"
 		umount "$base"
@@ -171,25 +177,25 @@ if [[ ${#SLNL[*]} -eq 1 ]]; then
 
 	# bootbind.service doesn't work with bios booting
 	systemctl disable bootbind.service &> /dev/null
+	# note that the below "boot@a" is a guess about which drive the system
+	# will boot from. you might find that "boot@b" is actually the primary
+	# drive and "boot@a" is the fallback. whichever the bois selects when
+	# booting is the one that needs to be bind-mounted to /boot.
 	cat <<- 'END' >> /etc/fstab
 		/boot@a /boot none bind,x-systemd.before=bootsync.service,nofail 0 0
 	END
 else
-	cat <<- END
-		sorry, the custom syslinux-nonlinux package (+BLS) failed to compile.
+	cat <<- 'END'
+		Sorry, the custom syslinux-nonlinux package (+BLS) failed to compile.
 
-		pausing the installation now so you can (optionally) run
-		ssh -p ${SSHPORT} root@127.0.0.1 chroot $ANACONDA_ROOT_PATH bash -l
-		and attempt to get the /tmp/syslinux-*.src.rpm package to compile.
-		(you will need to manually enter the commands at the end of the
-		biosboot.ks script to actually install syslinux should you get it to
-		compile.)
+		I've paused the installation so you can (optionally) background this
+		script, run `chroot /mnt bash --login` and attempt to get the
+		/tmp/syslinux-*.src.rpm package to compile.
 
-		otherwise, press any key to continue and UEFI booting will still work.
+		If you get syslinux to compile, you can manually enter the commands
+		in the success clause of the /root/biosboot script to install it.
+
+		Otherwise, press any key to continue and UEFI booting will still work.
 	END
 	read -n 1 -s
 fi
-
-printf "\n\e[0;97;7m finished $SELF \e[0m\n\n"
-%end
-

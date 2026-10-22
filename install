@@ -1,47 +1,13 @@
 #!/usr/bin/bash
 # vim:set ts=3 sw=3:
 
-set -e
-
+shopt -so errexit
+shopt -so pipefail
 shopt -s lastpipe
-shopt -s nocasematch
 shopt -s extglob
+shopt -s nocasematch
 
-function trace {
-	printf '\n\nAn error has occurred on line %s%s.\n' $1 ${2:+of $2} 1>&2
-}
-
-trap 'trace ${LINENO} ${0##*/}' err
-
-uname -m | read ARCH
-
-. <(tac config/evariables.conf | grep -m 1 '^FREP=')
-. <(tac config/evariables.conf | grep -m 1 '^ZREP=')
-
-function warn {
-	local IFS=''; printf -- "WARNING: $*" 1>&2;
-	if [[ -n $1 ]]; then
-		printf '\n'
-	else
-		timeout 1 fmt -g 75
-	fi
-}
-
-function fail {
-	local IFS=''; printf -- "ERROR: $*" 1>&2;
-	if [[ -n $1 ]]; then
-		printf '\n'
-	else
-		timeout 1 fmt -g 75
-	fi
-	exit 1
-}
-
-function usage {
-	printf -- '%b' "USAGE: ./${0##*/} [qemu options] [release] <kickstart>" \
-		" <drive1> <drive2> [<driveN> ...]\n" 1>&2
-	exit 1
-}
+trap 'printf "\e[2D\e[0K\n; exit 1"' int
 
 function prompt {
 	ANSWER=''
@@ -53,38 +19,135 @@ function prompt {
 	done
 }
 
-# used internally to dump files to anaconda (via curl)
-# IMPORTANT: this must be the first to generate stdout
-if [[ $1 == '---' ]]; then
-	sed -n '1 {s!^GET /*\(\S*\).*$!\1!;p;q;}' | read CAFE
-	if [[ -r $CAFE ]]; then
-		cat <<- END
-			HTTP/1.0 200 OK
-			Content-Type: application/octet-stream
+if ! [[ $INHIBITED == true ]]; then
+	fmt -g 75 <<- 'END'
+		WARNING: This script will make permanent changes to the system it is run on.
+		Specifically, it will install the ZFS on Linux filesystem driver and
+		userspace software. It is expected (but not required) that this script will
+		be run in an ephemeral environment such as a Fedora Live image or a virtual
+		machine.
+
+	END
+	prompt 'Do you want to contine?'
+	[[ $ANSWER != y ]] && exit 1
+fi
+
+if ! [[ $INHIBITED == true ]] && [[ -x /usr/bin/systemd-inhibit ]]; then
+	# override the inhibitor override
+	mkdir -p /run/systemd/logind.conf.d
+	printf '[Login]\nLidSwitchIgnoreInhibited=no\n' \
+		> /run/systemd/logind.conf.d/override.conf
+	systemctl daemon-reload
+
+	# prevent the system from going into suspend mode during the installation
+	systemd-inhibit \
+		--what='idle:sleep:shutdown' \
+		--who='fedora-on-zfs' \
+		--why='installation in progress' \
+		--mode='block' \
+		env INHIBITED="true" "$0" "$@"
+
+	STATUS="$?"
+
+	rm -f /run/systemd/logind.conf.d/override.conf
+	systemctl daemon-reload
+
+	exit "$STATUS"
+fi
+
+# prevent systemd-oomd from killing the fedora-on-zfs installer
+systemctl stop systemd-oomd.service systemd-oomd.socket &>/dev/null || :
+
+function trace {
+	printf "\n\nAn error has occurred on line ${1}${2:+ of $2}.\n" 1>&2
+}
+
+trap 'trace ${LINENO} ${0##*/}' err
+
+FILE='config/evariables.conf'
+source "$FILE"
+trap "printf 'ERROR: A required setting is not defined in $FILE\n'" exit
+: ${FREP:?}
+: ${ZREP:?}
+: ${ESPSIZE:?}
+: ${ZFSROOT:?}
+: ${ZFSRAID:?}
+: ${CMDLINE:?}
+trap - exit
+
+if type -p zpool &> /dev/null; then
+	if zpool list -H -o name | grep -qx "${ZFSROOT%%/*}"; then
+		fmt -g 75 <<- END 1>&2
+			ERROR: A ZFS pool named "${ZFSROOT%%/*}" exists!
+			Maybe you want to set a unique ZFS pool name for
+			the new installation in config/evariables.conf?
 
 		END
-		exec cat "$CAFE"
-	else
-		cat <<- END
-			HTTP/1.0 418 I'm a teapot
-
-		END
-		exit
+		exit 1
 	fi
 fi
+
+declare -a CLEANUP=()
+function self-destruct { :; }
+function cleanup {
+	set +e
+	while [[ ${#CLEANUP[@]} -gt 0 ]]; do
+		eval ${CLEANUP[-1]} &> /dev/null
+		unset CLEANUP[-1]
+	done
+
+	# **WHY** are these host services holding locks on the new ZFS pool???
+	{
+		grep "^${ZFSROOT%%/*}\b" /proc/*/mounts \
+			| cut -d '/' -f 3 \
+			| grep '^[0-9]\+$' \
+			| uniq \
+			| xargs -r -n 1 systemctl status \
+			| grep '^●' \
+			| cut -d ' ' -f 2 \
+			| xargs -r systemctl restart
+	} &> /dev/null
+
+	# Destroy the ZFS pool if a bootable installation was not achieved.
+	self-destruct
+}
+trap 'cleanup' exit
+
+function warn {
+	local IFS=''; printf -- "WARNING: $*" 1>&2;
+	if [[ -n $1 ]]; then
+		printf '\n' 1>&2
+	else
+		timeout 1 fmt -g 75 1>&2
+	fi
+}
+
+function fail {
+	local IFS=''; printf -- "ERROR: $*" 1>&2;
+	if [[ -n $1 ]]; then
+		printf '\n' 1>&2
+	else
+		timeout 1 fmt -g 75 1>&2
+	fi
+	exit 1
+}
+
+function usage {
+	printf -- '%b' "USAGE: ./${0##*/} [release] <environment>" \
+		" <drive1> <drive2> [<driveN> ...]\n" 1>&2
+	exit 1
+}
 
 # clear any console codes that might be
 # leftover from a previously failed run
 printf '\e[0m\n'
 
-if [[ -z $1 ]] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [[ -z $1 ]] || [[ $1 =~ ^-?-h(elp)?$ ]]; then
 	usage
 fi
 
-UEFI='/sys/firmware/efi/efivars'
-. <(tac config/evariables.conf | grep -m 1 '^BIOSBOOT=')
-
 PROMPT=0
+UEFI='/sys/firmware/efi/efivars'
 
 if [[ -z $BIOSBOOT ]] && ! [[ -e $UEFI ]]; then
 	warn <<- END
@@ -116,168 +179,50 @@ if [[ $PROMPT == 1 ]]; then
 	[[ $ANSWER == n ]] && exit 1
 fi
 
-# determine how much physical and virtual memory is available (in KB)
-grep -m 1 -o '[0-9]\+' /proc/meminfo \
-   | read PHYS_MEM
-swapon --show=size,name --bytes --noheadings | grep -v zram \
-   | cut -d ' ' -f 1 | paste -sd+ | bc | numfmt --to-unit=Ki --round=down \
-   | read VIRT_MEM || :
-
-# defaults (these can be overridden on the command line)
-declare -A QEMU=(
-	['-name']='fedora'
-	['-cpu']='max'
-	['-smp']="$(grep -c '^processor\b' /proc/cpuinfo)"
-	['-m']="$((${PHYS_MEM}*3/4+${VIRT_MEM:-0}))K"
-)
-
-grep -q '\bvmx\|svm\b' /proc/cpuinfo && QEMU['-accel']='kvm'
-
-# filter qemu options (anything beginning with '-' is passed on to qemu)
-declare -a ARGV=()
-while (( $# > 0 )) && [[ $1 != -- ]]; do
-	if [[ ${1:0:1} == - ]]; then
-		if [[ $1 == *=* ]]; then
-			QEMU["${1%%=*}"]="${1#*=}"
-			shift 1
-		else
-			QEMU["$1"]="$2"
-			shift 2
-		fi
-	else
-		ARGV+=("$1")
-		shift 1
-	fi
-done
-[[ $1 == -- ]] && shift 1
-set -- "${ARGV[@]}" "$@"
+uname -m | read ARCH
 
 # if "$1" is a number, take it to be
 # the fedora release to be installed
 if [[ $1 =~ ^[0-9]+$ ]]; then
 	RV="$1"; shift
 else
-	curl -sf 'https://fedoraproject.org/releases.json' | jq '
+	curl -sf 'https://fedoraproject.org/releases.json' | jq -r '
 		.[]
 		| select(.arch == "'"$ARCH"'")
 		| select(.variant | test("everything"; "i"))
 		| select(.version | test("beta"; "i") | not)
-		| .version
-		| tonumber - 1
-	' | read RV
+		| [ .version ]
+		| join(" ")
+		' | readarray -t VERSIONS
+
+	if (( ${#VERSIONS[@]} < 2 )); then
+		fail <<- END
+			Failed to fetch the fedora release data.
+
+		END
+	fi
+
+	# use the n-1 release by default
+	printf '%s\n' "${VERSIONS[1]}" | read RV
 fi
 
-if [[ $RV -le 0 ]]; then
-	fail <<- END
-		Failed to determine the current fedora release. You can specify a
-		release to install manually by providing a number as the first
-		argument to this script.
-
-	END
+if [[ $1 =~ ^([^[:space:]]+)-environment$ ]]; then
+	ENVIRONMENT="${BASH_REMATCH[1]}"
+	shift
+else
+	fail 'This script only works with *-environment dnf environments.\n'
 fi
-
-# pre-process the kickstarts
-KS="${1#fedora-kickstarts/}"; shift || usage
-if ! [[ $KS =~ ^fedora-disk- ]]; then
-	fail 'This script only works with fedora-disk-* kickstart scripts.\n'
-fi
-if ! [[ -e fedora-kickstarts ]]; then
-	git clone 'https://pagure.io/fedora-kickstarts.git'
-fi
-cd fedora-kickstarts
-if [[ $(git branch --show-current) != f$RV ]]; then
-	git clean -q -f -d
-	git checkout "f$RV"
-fi
-cd ..
-# annoyingly, fedora-disk-minimal.ks was dropped after Fedora Linux 41
-FILE='fedora-kickstarts/fedora-minimal-common.ks'
-[[ -s $FILE ]] || cat <<- 'END' > "$FILE"
-	%packages
-	dnf5
-	-@standard
-	-initial-setup-gui
-	-generic-release*
-	-glibc-all-langpacks
-	# recommended by iproute, we don't want it in minimal
-	-iproute-tc
-	# recommended by gnutls, we don't want it in minimal
-	-trousers
-	glibc-langpack-en
-	iw
-	NetworkManager-wifi
-	%end
-
-	%post
-
-	# setup systemd to boot to the right runlevel
-	echo -n "Setting default runlevel to multiuser text mode"
-	systemctl set-default multi-user.target
-	echo .
-
-	%end
-END
-FILE='fedora-kickstarts/fedora-disk-minimal.ks'
-[[ -s $FILE ]] || cat <<- 'END' > "$FILE"
-	%include fedora-disk-base.ks
-	%include fedora-minimal-common.ks
-
-	services --enabled=sshd,NetworkManager,chronyd,initial-setup
-END
-if ! [[ -f fedora-kickstarts/$KS ]]; then
-	fail "Kickstart file 'fedora-kickstarts/$KS' not found.\n"
-fi
-rm -rf "$RV/fedora-kickstarts"
-for ks in $(find 'fedora-kickstarts' -name '*.ks'); do
-	mkdir -p "$RV/${ks%/*}"
-	sed "
-		s#^\(%include\) \(.*\)#\1 /host/${ks%/*}/\2#;
-		s#^\(%packages\)#\1 --ignoremissing#;
-	" $ks | grep -v \
-		-e '^autopart\b' \
-	> "$RV/$ks"
-done
-printf -- '%b' 'repo ' \
-	'--name=fedora ' \
-	"--baseurl=${FREP%%*(/)}" \
-		"/linux/releases/\$releasever/Everything/\$basearch/os/\n" \
-	> "$RV/fedora-kickstarts/fedora-repo.ks"
-printf '\n'
-
-# provide the installer with the conifguration files that will
-# be referenced by the scripts during the installation process
-cp -r config "$RV"
-
-# try to match the host's env so, e.g., <backspace> will work
-cat <<- END >> "$RV/config/evariables.conf"
-
-	TERM="$TERM"
-	LANG="$LANG"
-END
-
-# combine the provided kickstart and our scripts
-# to create the final kickstart (fedora-on-zfs.ks)
-cat << END > "$RV/fedora-kickstarts/fedora-on-zfs.ks"
-%include /host/fedora-kickstarts/$KS
-%include /host/config/override.ks
-${BIOSBOOT:+%include /host/config/$BIOSBOOT}
-%include /host/config/lastcall.ks
-END
-
-# supplemental scripts to be added to /usr/local/bin
-cp -r "supplements" "$RV" || :
 
 # provide the installer with the scripts to support degraded boot
 # (if a drive fails, you should still be able to boot the system)
 [[ -e bootsync ]] || git clone \
 	'https://github.com/gregory-lee-bartholomew/bootsync.git'
-[[ -e bootsync ]] && cp -r bootsync "$RV"
 printf '\n'
 
 ENCRYPTION='off'
-if [[ $KS == fedora-disk-minimal.ks ]]; then
+if [[ $ENVIRONMENT == sway-desktop ]]; then
 	tr -d '\t' <<- END
-		I see you selected the fedora-disk-minimal kickstart.
+		I see you selected the ${ENVIRONMENT} environment.
 
 		This installer can include a simple PAM script called \
 		[1mhomelock[22m which
@@ -300,82 +245,83 @@ if [[ $KS == fedora-disk-minimal.ks ]]; then
 			printf '\n'
 			git clone 'https://github.com/gregory-lee-bartholomew/homelock.git'
 		fi
-		[[ -e homelock ]] && cp -r homelock "$RV"
 	fi
-fi
-if [[ $ENCRYPTION == off ]]; then
-	[[ -e $RV/homelock ]] && rm -rf "$RV/homelock"
-fi
-printf '\n'
-
-ADD_SWAYWM='no'
-if [[ $KS == fedora-disk-minimal.ks ]] && [[ $RV -ge 38 ]]; then
-	cat <<- 'END'
-		I see you selected the fedora-disk-minimal kickstart.
-	END
-	prompt 'Would you like [1mSway[22m with that?'
-	[[ $ANSWER == y ]] && ADD_SWAYWM='yes'
 fi
 printf '\n'
 
 # sanity checks
-. <(tac config/evariables.conf | grep -m 1 '^ZFSRAID=')
-declare -a FILE=()
+MAX_DRIVES='26'
+declare -a DRIVES=()
 while [[ -n $1 ]]; do
 	if ! [[ -e $1 ]]; then
 		fail "'$1' not found\n"
 	fi
 
-	FILE+=("$1")
+	DRIVES+=("$1")
 	shift
+
+	if (( ${#DRIVES[*]} > MAX_DRIVES )); then
+		fail "This script can only handle up to $MAX_DRIVES storage devices."
+	fi
 done
-if [[ $ZFSRAID == mirror ]] && [[ ${#FILE[*]} -lt 2 ]]; then
+if [[ $ZFSRAID == mirror ]] && (( ${#DRIVES[*]} < 2 )); then
 	fail 'You must supply at least two drives.\n'
 fi
 if [[ $ZFSRAID == draid ]] || [[ $ZFSRAID == raidz ]]; then
 	fail "[1m${ZFSRAID}[22m isn't really a thing. Did you mean ${ZFSRAID}1?"
 fi
 if
-	[[ $ZFSRAID =~ ^d?raidz?([1-3])$ ]] && ! [[ ${#FILE[*]} -gt ${BASH_REMATCH[1]} ]]
+	[[ $ZFSRAID =~ ^d?raidz?([1-3])$ ]] && ! (( ${#DRIVES[*]} > ${BASH_REMATCH[1]} ))
 then
 	fail "[1m${ZFSRAID}[22m requires at least $((${BASH_REMATCH[1]}+1)) drives."
 fi
 
-# fetch the anaconda boot files
-if ! [[ -d $RV/images/pxeboot ]]; then
-	mkdir -p "$RV/images/pxeboot"
+REPO='/etc/yum.repos.d/fedora-custom.repo'
+cat <<- END > "$REPO"
+	[fedora-custom]
+	name=Fedora $RV - $ARCH
+	baseurl="${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/"
+	enabled=0
+	countme=0
+	metadata_expire=1h
+	repo_gpgcheck=0
+	type=rpm
+	gpgcheck=1
+	gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$RV-$ARCH
+	skip_if_unavailable=False
+	exclude_from_weak=*-firmware
+END
+CLEANUP+=("rm -f '$REPO'")
+
+DNF=(
+	dnf
+	-q
+	-y
+	--releasever="$RV"
+	--repo=fedora-custom
+)
+
+# fetch the openpgp certificates
+mktemp -d | read TEMP
+CLEANUP+=("rm -rf '$TEMP'")
+which curl rpm2cpio cpio sq 1> /dev/null
+if ! [[ -e /etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$RV-$ARCH ]]; then
+	printf "Downloading Fedora certificates from $FREP ...\n"
+	${DNF[@]/-q/} download --releasever="$RV" --destdir="$TEMP" fedora-gpg-keys \
+		|| fail 'Failed to download Fedora certificates. Is $FREP correct?\n'
 fi
-for BF in images/{pxeboot/{vmlinuz,initrd.img},install.img}; do
-	if ! [[ -e $RV/$BF ]]; then
-		printf "Downloading $BF for fedora linux $RV on $ARCH...\n"
-		curl -\# -f --remove-on-error -o "$RV/.partial" \
-			-L "${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/$BF"
-		mv "$RV/.partial" "$RV/$BF"
-	fi
-done
-printf '\n'
-
-# prevent the ssh host fingerprint of the installer
-# from changing between one run and the next
-if ! [[ -e updates/etc/ssh ]]; then
-	mkdir -p 'updates/etc/ssh'
-	ssh-keygen -A -f 'updates' || :
-	printf '\n'
-fi
-
-cp -r updates "$RV"
-
-# fetch the gpg rpms and extract the gpg keys
-trap -p err | read -r PREVIOUS_ERR_TRAP || :
-trap "printf '%s\n' \
-	'ERROR: ZFS repo gpg key for Fedora Linux $RV not found at $ZREP.' \
-" err
 if [[ $ZREP =~ \.rpm$ ]]; then
 	ZKEY="${ZREP##*/}"
 	ZREP="${ZREP%/*}"
-elif [[ $RV -le 34 ]]; then
-	ZKEY="zfs-release.fc$RV.noarch.rpm"
+	if [[ $ZREP =~ zfsonlinux.github.com/?$ ]]; then
+		ZREP="${ZREP%%*(/)}/raw/master/fedora"
+	fi
+	URL="${ZREP%%*(/)}/$ZKEY"
+	printf "Downloading $ZKEY from $ZREP ...\n"
+	curl -s -L --output-dir="$TEMP" -O "$URL" \
+		|| fail "failed to download $ZKEY. Is \$ZREP correct?\n"
 else
+	printf "Downloading ZFS certificate from $ZREP ...\n"
 	(
 		set -e
 		shopt -s lastpipe
@@ -393,97 +339,84 @@ else
 			| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 			| sort -r -t '.' -k 2 \
 			| read RPM
-		cp "fedora/$RPM" "$OLDPWD/$RV"
+		cp "fedora/$RPM" "$TEMP"
 		printf "%s\n" "$RPM"
-	) | read ZKEY
+	) | read ZKEY || fail "ZFS certificate for Fedora Linux $RV not found at $ZREP.\n"
 fi
-eval ${PREVIOUS_ERR_TRAP:-trap - err}
-if [[ $ZREP =~ zfsonlinux.github.com/?$ ]]; then
-	ZREP="${ZREP%%*(/)}/raw/master/fedora"
-fi
-which curl rpm2cpio cpio 1> /dev/null
-mktemp -d | read TEMP
-declare -a RPMS=()
-RPMS+=("${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os\
-/Packages/f/fedora-gpg-keys-$RV-1.noarch.rpm")
-if [[ -e $RV/$ZKEY ]]; then
-	rpm2cpio "$RV/$ZKEY" \
-		| cpio -i -u -d --quiet --directory="$TEMP" "./etc/pki/rpm-gpg/*"
-else
-	RPMS+=("${ZREP%%*(/)}/$ZKEY")
-fi
-for rpm in "${RPMS[@]}"; do
-	printf "Downloading $rpm ...\n"
-	if ! curl -s -L "$rpm" \
-		| tee "$RV/${rpm##*/}" \
-		| rpm2cpio \
-		| cpio -i -u -d --quiet --directory="$TEMP" "./etc/pki/rpm-gpg/*"
-	then
-		fail 'The download failed. Are $FREP and $ZREP correct?\n'
-	fi
-done
 printf '\n'
 
 # ask the user to verify the keys
-KEYSDIR="$RV/updates/etc/pki/rpm-gpg"
-which gpg 1>/dev/null
-rm -rf "$KEYSDIR"
-mkdir -p "$KEYSDIR"
-find "$TEMP" -type f -name 'RPM-GPG-KEY-*' -print0 \
-	| readarray -d '' -t KEYS
-for key in "${KEYS[@]}"; do
-	[[ $key =~ [^/]*zfs[^/]*$ ]] || [[ $key =~ $RV-primary$ ]] || continue
+find "/etc/pki/rpm-gpg" -type f -name 'RPM-GPG-KEY-*' \
+	-exec sq keyring list '{}' \; \
+	| grep -o '[[:xdigit:]]\{40\}' | readarray -t INSTALLED
+find "$TEMP" -maxdepth 1 -type f -name '*.rpm' \
+	| readarray -t DOWNLOADED
+for d in "${DOWNLOADED[@]}"; do
+	RPM="${d##*/}"
 
-	gpg --show-keys "$key"
+	printf "Checking if $RPM provides new certificates ...\n";
 
-	prompt 'Is the gpg key fingerprint shown above correct?'
-	if [[ $ANSWER == y ]]; then
-		cp "$key" "$KEYSDIR"
-	else
-		printf "Omitting ${key##*/}.\n"
+	exdir="${d%.rpm}.extracted"
+	mkdir "$exdir"
+	rpm2cpio "$d" | cpio -i -u -d --quiet \
+		--directory="$exdir" "./etc/pki/rpm-gpg/*"
+	find "$exdir" -type f -name 'RPM-GPG-KEY-*' -print \
+		| readarray -t EXTRACTED
+
+	if (( ${#EXTRACTED[@]} == 0 )); then
+		warn <<- END
+			No OpenPGP certificates were found in $RPM, skipping ...
+
+		END
+		continue
 	fi
 
+	NEW_CERTS='false'
+	for e in "${EXTRACTED[@]}"; do
+		sq keyring list "$e" | readarray -t CERTIFICATES
+		for c in "${CERTIFICATES[@]}"; do
+			printf '%s\n' "$c" | grep -o '[[:xdigit:]]\{40\}' | read x
+			if printf '%s\n' "${INSTALLED[@]}" | grep -qx "$x"; then
+				printf -- '- certificate %s already installed\n' "$x"
+			else
+				printf -- '- certificate %s not found\n' "$x"
+				NEW_CERTS='true'
+			fi
+		done
+	done
+
+	if [[ $NEW_CERTS == false ]]; then
+		cat <<- END
+
+			All certs in $RPM are already installed.
+
+		END
+		if [[ $RPM == $ZKEY ]]; then
+			cp "$d" .
+		fi
+		continue
+	fi
+
+	prompt "\nInstall $RPM?"
 	printf '\n'
+	if [[ $ANSWER == y ]]; then
+		printf "Installing $RPM.\n"
+		if rpm --query "${RPM%.rpm}" &> /dev/null; then
+			rpm --reinstall "$d"
+		else
+			rpm --install "$d"
+		fi
+		if [[ $RPM == $ZKEY ]]; then
+			cp "$d" .
+		fi
+	else
+		printf "Omitting $RPM.\n"
+	fi
 done
 printf '\n'
 
-# dnf was removed from install.img for Fedora Linux 42+
-if [[ $RV -ge 42 ]]; then
-	dnf5 \
-		-q -y \
-		--use-host-config \
-		--repo=fedora \
-		--releasever="$RV" \
-		--installroot="$PWD/$RV/updates" \
-		install dnf5 2>&1 1> /dev/null | grep -v '^[^[:alnum:] ]'
-	echo
-fi
-
-# allow remoting into the installer for debugging
-if [[ -s $RV/updates/etc/shadow ]]; then
-	sed -i '/^root:/ { s/:[^:]*:/::/; }' "$RV/updates/etc/shadow"
-fi
-
-# create the "updates" overlay that contains most of the anaconda overrides
-if cd "$RV/updates"; then
-	find . | cpio -oc --quiet --file="../images/updates.img"
-	cd ../..
-fi
-
-# initialize the firmware data for qemu
-mkdir -p "$RV/efi"
-for fd in OVMF_{CODE,VARS}.fd; do
-	if ! cp "/usr/share/edk2/ovmf/$fd" "$RV/efi" &>/dev/null; then
-		fail <<- END
-			Failed to make a local copy of '$fd'.
-			You might need to install the edk2-ovmf package.
-
-		END
-	fi
-done
-
 # print the disk ids for the devices that are about to be erased
-for f in "${FILE[@]}"; do
+for f in "${DRIVES[@]}"; do
 	[[ -b $f ]] || continue
 	udevadm info -q property --property=ID_MODEL --value "$f" | read MODEL || :
 	printf '\e[1;31m%s: %s\e[22;39m\n' "$f" "${MODEL:-unknown device model}"
@@ -492,90 +425,726 @@ printf '\n'
 
 # give the user one last chance to abort
 cat <<- END
-	WARNING: This will erase all data from: [1;31m${FILE[*]}[22;39m
+	WARNING: This will erase all data from: [1;31m${DRIVES[*]}[22;39m
 END
 prompt 'Are you sure you want to continue?'
 if [[ $ANSWER == y ]]; then
-	if ! STATUS=$(wipefs -a "${FILE[@]}" 2>&1); then
+	if ! STATUS=$(wipefs -a "${DRIVES[@]}" 2>&1); then
 		fail "$STATUS\n"
 	fi
+
+	DEVDIR="$(realpath ${0%/*})/devices"
+	mkdir -p "$DEVDIR"
+	CLEANUP+=("rm -rf '$DEVDIR'")
+
+	LETTERS=({a..z})
+	find "$DEVDIR" -maxdepth 1 -type l -name 'vd*' -exec rm -f "{}" \;
+	while (( ${#DRIVES[@]} > 0 )); do
+		LETTER="${LETTERS[$((${#DRIVES[@]}-1))]}"
+		ln -s "${DRIVES[-1]}" "$DEVDIR/vd$LETTER"
+		unset DRIVES[-1]
+	done
 else
-	exit 1
+	exit 0
 fi
 
-. <(tac config/evariables.conf | grep -m 1 '^SSHPORT=')
+udevadm settle || :
+if lsblk -o partlabel | grep -qx 'boot@[a-z]'; then
+	fail <<- 'END'
+		Partitions with labels matching boot@[a-z] have been detected.
+		This installer is not designed to be run within existing fedora-on-zfs
+		installations. If you are trying to create another OS instance
+		on drives that already contain a fedora-on-zfs installation, consider
+		using the /usr/local/bin/oscr script.
+
+		Alternatively, you could rename the conflicting partition labels and
+		update your /etc/fstab accordingly.
+
+	END
+fi
 
 cat <<- END
 
-	Launching the anaconda installer.
-
-	You can press [1mctrl-a x[22m at any time to kill the installer.
-	Or run [1mssh -p ${SSHPORT} root@127.0.0.1[22m to debug the installer.
+	Beginning the installation.
 
 	You can get some coffee now. This will take a while.
 
 END
 
-sleep 3
+for d in $DEVDIR/vd[a-z]; do
+	l=${d: -1}
+	d="$(realpath "$d")"
+	printf "[1m$d[22m:\n"
+	tee /dev/stdout <<- END | bash
+		sgdisk --zap-all "$d"
+		sgdisk -n "0:0:+$ESPSIZE" -t '0:ef00' -c "0:boot@$l" "$d"
+		sgdisk -n '0:0:0' -t '0:8304' -c "0:root@$l" "$d"
+		blockdev --rereadpt "$d"
+	END
+	printf '\n'
+done
 
-# prevent systemd-oomd from killing the fedora-on-zfs installer
-systemctl stop systemd-oomd.service systemd-oomd.socket &>/dev/null || :
+# kernel-devel is required to build the zfs driver
+"${DNF[@]}" install kernel kernel-devel kernel-headers \
+	|& grep -v '^>>> '
 
-# override the inhibitor override
-mkdir -p /run/systemd/logind.conf.d
-printf '[Login]\nLidSwitchIgnoreInhibited=no\n' \
-	> /run/systemd/logind.conf.d/override.conf
-systemctl daemon-reload || :
+# bug?
+ln -snf /usr/src/kernels/$(uname -r) /lib/modules/$(uname -r)/build
 
-# prevent the system from going into suspend mode during the installation
-declare -a INHIBIT=()
-if [[ -x /usr/bin/systemd-inhibit ]]; then
-	INHIBIT=(
-		systemd-inhibit
-		--what='idle:sleep:shutdown'
-		--who='fedora-on-zfs'
-		--why='installation in progress'
-		--mode='block'
-	)
+# build the zfs driver (uses dkms)
+"${DNF[@]}" --repo=zfs install libunwind zfs
+printf '\n'
+
+# create a hostid for zfs
+[[ -e /etc/hostid ]] || zgenhostid
+
+# load the zfs driver (give the build a second try if it failed)
+if ! modprobe zfs &>/dev/null; then
+	dkms autoinstall
+	modprobe zfs
 fi
 
-"${INHIBIT[@]}" qemu-system-$ARCH \
-	-nographic \
-	$(
-		for s in "${!QEMU[@]}"; do
-			printf -- '%s %q ' "$s" "${QEMU[$s]}"
-		done
-	)\
-	-device 'virtio-rng-pci' \
-	-device 'virtio-net,netdev=n0' \
-	-netdev "$(printf -- '%s' \
-		'user,' \
-		'id=n0,' \
-		"hostfwd=tcp:127.0.0.1:${SSHPORT}-:22," \
-		"guestfwd=tcp:10.0.2.200:80-cmd:$0 ---," \
-	)" \
-	-drive "if=pflash,format=raw,unit=0,file=$RV/efi/OVMF_CODE.fd,readonly=on" \
-	-drive "if=pflash,format=raw,unit=1,file=$RV/efi/OVMF_VARS.fd" \
-	$(
-		for f in "${FILE[@]}"; do
-			printf -- '-drive if=virtio,format=raw,file=%q ' "$f"
-		done
-	)\
-	-virtfs "local,mount_tag=host,path=$RV,security_model=mapped,multidevs=remap" \
-	-kernel "$RV/images/pxeboot/vmlinuz" \
-	-initrd "$RV/images/pxeboot/initrd.img" \
-	-append "$(printf -- '%s' \
-		'enforcing=0 quiet console=null ' \
-		'rd.dm=0 rd.lvm=0 rd.luks=0 rd.md=0 ' \
-		"systemd.setenv=RELEASEVER=$RV systemd.setenv=BASEARCH=$ARCH " \
-		"systemd.setenv=REPO=${FREP%%*(/)}/linux/releases/$RV/Everything/$ARCH/os/ " \
-		"systemd.setenv=ZKEY=$ZKEY " \
-		"systemd.setenv=ENCRYPTION=$ENCRYPTION " \
-		"systemd.setenv=ADD_SWAYWM=$ADD_SWAYWM " \
-		"inst.stage2=http://10.0.2.200/$RV " \
-		'inst.sshd ' \
-	)"
+printf 'initializing zfs file systems ...\n\n'
 
+zpool create -f -m none -R /mnt \
+	$(grep -i '^-o ' config/properties.conf) \
+	"${ZFSROOT%%/*}" $ZFSRAID /dev/disk/by-partlabel/root@[a-z]
+
+# the self-destruct function will be undefined when
+# a (potentially) bootable state has been reached
+function self-destruct { 
+	zpool destroy -f "${ZFSROOT%%/*}"
+}
+
+zpool list -vP -o name,size,allocated,free,checkpoint,\
+expandsize,fragmentation,capacity,dedupratio,health
+printf '\n'
+
+zfs create -o canmount=noauto -o mountpoint=/ "$ZFSROOT"
+(
+	IFS=$'\n'
+	for mp in $(<config/filesystems.conf); do
+		declare -a options=()
+		if [[ ${mp:0:1} == - ]]; then
+			options+=(-o canmount=off)
+			mp="${mp:1}"
+		fi
+		[[ $mp == /* ]] || continue
+		options+=(-o mountpoint="$mp")
+		fs="${mp:1}"
+		zfs create "${options[@]}" "${ZFSROOT%%/*}/${fs//\//-}"
+	done
+)
+zfs mount "$ZFSROOT"
+CLEANUP+=("umount -R /mnt")
+
+# double-check that the zfs operations were successful
+mountpoint -q /mnt
+(
+	IFS=$'\n'
+	for mp in $(<config/filesystems.conf); do
+		[[ $mp == /* ]] || continue
+		mountpoint -q "/mnt$mp" || exit
+	done
+)
+
+zfs list -r "${ZFSROOT%%/*}" | sed "s# /mnt/\?# /#;"
+printf '\n'
+
+LIST="dev proc sys run"
+for i in $LIST; do
+	mount -o X-mount.mkdir=755 --rbind "/$i" "/mnt/$i"
+	mount --make-rslave "/mnt/$i"
+	CLEANUP+=("umount -R '/mnt/$i'")
+done
+mount -o X-mount.mkdir=755 --bind "/tmp" "/mnt/tmp"
+CLEANUP+=("umount '/mnt/tmp'")
+
+"${DNF[@]}" \
+	--use-host-config \
+	--installroot=/mnt install \
+	"@$ENVIRONMENT-environment" \
+	langpacks-en glibc-langpack-en
+printf '\n'
+
+# copy the fedora-custom repo def. to the installed system
+mkdir -p "/mnt${REPO%/*}"
+cp "$REPO" "/mnt$REPO"
+CLEANUP+=("rm -f '/mnt$REPO'")
+
+# copy the gpg keys to the installed system
+cp "$ZKEY" "/mnt/var/tmp"
+
+# avoid unnecessarily recompiling zfs
+cp -a /var/lib/dkms "/mnt/var/lib"
+cp -a /usr/src/zfs-* "/mnt/usr/src"
+
+# let zfs know that this host and the installed system are the same
+cp -v /etc/hostid "/mnt/etc/hostid"
+
+# initialize the installed system's unique machine id
+systemd-firstboot --force --root="/mnt" --setup-machine-id
+
+MACHINE_ID="$(</mnt/etc/machine-id)"
+CHROOT=(
+	chroot /mnt
+	/bin/env MACHINE_ID="$MACHINE_ID"
+)
+
+# make systemd happy
+"${CHROOT[@]}" hwclock -w -u || :
+
+# remove random seed, the newly-\
+# installed instance should make its own
+rm -f /mnt/var/lib/systemd/random-seed
+
+# install zfs on the target system
+"${CHROOT[@]}" rpm --nodeps --erase zfs-fuse &> /dev/null || :
+"${CHROOT[@]}" "${DNF[@]}" install "/var/tmp/$ZKEY"
+FILE='/mnt/etc/kernel/install.d/00-abort.install'
+mkdir -p "${FILE%/*}"
+cat <<- 'END' > "$FILE"
+	#!/bin/sh
+	exit 77
+END
+chmod +x "$FILE"
+"${CHROOT[@]}" "${DNF[@]}" --repo=zfs \
+	install libunwind kernel kernel-devel zfs zfs-dracut
+rm -f "$FILE"
+printf 'add_drivers+=" zfs "\n' > /mnt/etc/dracut.conf.d/zfs.conf
+
+# install systemd-boot
+# (also causes the initramfs to be generated with the zfs drivers)
+TIMEOUT=10
+DEFAULT="$(</mnt/etc/machine-id)-*"
+mkdir -p /mnt/etc/kernel/install.d
+cat <<- END > /mnt/etc/kernel/cmdline
+	root=zfs:$ZFSROOT $CMDLINE
+END
+cat <<- END > /mnt/etc/kernel/install.conf
+	BOOT_ROOT=/boot
+	layout=bls
+END
+FILE='/mnt/etc/kernel/install.d/91-loaderentry-update-title.install'
+cat <<- 'END' > "$FILE"
+	#!/usr/bin/sh
+
+	set -e
+
+	trap 'exit 0' exit
+
+	COMMAND="${1:?}"
+	KERNEL_VERSION="${2:?}"
+
+	[ "$COMMAND" = "add" ]
+	[ "$KERNEL_INSTALL_LAYOUT" = "bls" ]
+
+	ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+	BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+	LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+	ROOTFS=''
+	for option in $(grep '^options\s' "$LOADER_ENTRY"); do
+	   ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+	done
+
+	[ -n "$ROOTFS" ]
+
+	sed -i -e '/^title\s/ { \| ('"$ROOTFS"')$|! s|$| ('"$ROOTFS"')|; }' \
+	   "$LOADER_ENTRY"
+END
+chmod +x "$FILE"
+printf 'hostonly="no"\n' \
+	> /mnt/etc/dracut.conf.d/hostonly.conf
+if mountpoint -q /mnt/boot; then
+	umount -q /mnt/boot
+fi
+sed -i '\#^\s*/boot\b# d' /mnt/etc/fstab &> /dev/null || :
+(
+	shopt -s dotglob
+	rm -rf /mnt/boot/*
+)
+"${CHROOT[@]}" "${DNF[@]}" install systemd-boot-unsigned
+if "${CHROOT[@]}" "${DNF[@]}" install plymouth-theme-script; then
+	if [[ -n $BIOSBOOT ]]; then
+		# default to non-graphical boot on older BIOS systems
+		"${CHROOT[@]}" plymouth-set-default-theme details || :
+	else
+		"${CHROOT[@]}" plymouth-set-default-theme script || :
+	fi
+fi
+ls -v -r /mnt/lib/modules | read KVER
+if ! "${CHROOT[@]}" dkms status -k "$KVER" | grep -q 'installed$'; then
+	"${CHROOT[@]}" rpm -q --qf='%{VERSION}\n' zfs | read MVER
+	"${CHROOT[@]}" dkms uninstall -m zfs -v "$MVER" -k "$KVER" || :
+	"${CHROOT[@]}" dkms install -m zfs -v "$MVER" -k "$KVER"
+	printf '\n'
+fi
+for disk in $DEVDIR/vd[a-z]; do
+	name="boot@${disk: -1}"
+	disk="$(realpath "$disk")"
+	part="${disk}1"
+
+	umount -q --all-targets ${part} || :
+
+	printf "initializing ${part} as EFI system partition ${name} ...\n"
+	mkfs -t vfat -n ${name} ${part} || continue
+	mkdir -v /mnt/${name} || continue
+	tr -d '\t' <<- END | tee -a /mnt/etc/fstab || continue
+		PARTLABEL=${name} \
+		/${name} \
+		vfat \
+		dmask=0077,fmask=0177,\
+		context=system_u:object_r:boot_t:s0,\
+		x-systemd.before=bootbind.service,\
+		shortname=lower,\
+		flush,\
+		discard,\
+		noexec,nodev,nosuid,nosymfollow,nofail \
+		0 0
+	END
+	if "${CHROOT[@]}" mount /${name} &> /dev/null; then
+		printf "mount: ${part} mounted on /${name}.\n"
+	else
+		printf "error: failed to mount ${part}\n"
+		continue
+	fi
+	bootctl install \
+		--root=/mnt \
+		--entry-token="literal:$MACHINE_ID" \
+		--make-entry-directory=yes \
+		--no-variables \
+		--esp-path=/${name} \
+		|| continue
+	printf '\n'
+
+	sed -i -n -e '/^#\?default\s/I!p' -e "\$a default $DEFAULT" \
+		/mnt/${name}/loader/loader.conf || :
+
+	sed -i -n -e '/^#\?timeout\s/I!p' -e "\$a timeout $TIMEOUT" \
+		/mnt/${name}/loader/loader.conf || :
+
+	if ! mount -v -o bind /mnt/${name} /mnt/boot 2> /dev/null; then
+		printf "error: failed to bind mount /${name} to /boot\n"
+		continue
+	fi
+	printf "running kernel-install for /${name} ...\n"
+	"${CHROOT[@]}" kernel-install add \
+		$KVER /lib/modules/$KVER/vmlinuz &> /dev/null && :
+	if (( $? == 0 )); then
+		printf 'kernel-install succeeded\n'
+	else
+		printf 'kernel-install failed\n'
+	fi
+	umount -v /mnt/boot || :
+	printf '\n'
+done
+
+# install the bootsync service to keep the ESPs sync'd
+SRCDIR='bootsync'
+if [[ -d "$SRCDIR" ]]; then
+	cp -r "$SRCDIR" /mnt/tmp
+	DIR=(env --chdir "/tmp/$SRCDIR")
+	cat <<- 'END'
+		Installing bootsync ...
+	END
+	"${CHROOT[@]}" "${DNF[@]}" install \
+		efibootmgr selinux-policy-devel rsync gettext-envsubst
+	"${CHROOT[@]}" "${DIR[@]}" make install
+	"${CHROOT[@]}" "${DIR[@]}" make sepolicy_install &> /dev/null
+	printf '\n'
+fi
+
+# install the homelock service to support encrypted homes if requested
+SRCDIR='homelock'
+if [[ $ENCRYPTION == on ]] && [[ -d "$SRCDIR" ]]; then
+	cp -r "$SRCDIR" /mnt/tmp
+	DIR=(env --chdir "/tmp/$SRCDIR")
+	cat <<- 'END'
+		Installing homelock ...
+	END
+	"${CHROOT[@]}" "${DNF[@]}" install \
+		selinux-policy-devel
+	"${CHROOT[@]}" "${DIR[@]}" make install "pool=${ZFSROOT%%/*}"
+	"${CHROOT[@]}" "${DIR[@]}" make sepolicy_install &> /dev/null
+	"${CHROOT[@]}" sed -i '/^USERS=/ { s/=.*/=()/; }' \
+		/etc/security/homelock.conf
+	printf '\n'
+fi
+
+# install supplemental scripts
+SRCDIR='supplements'
+if [[ -d "$SRCDIR" ]]; then
+	cd "$SRCDIR"
+	cat <<- 'END'
+		Installing supplemental executables ...
+		(feel free to remove these if you do not want them)
+	END
+	install -v * "/mnt/usr/local/bin" | sed 's!/mnt!!'
+	cd "$OLDPWD"
+	printf '\n'
+fi
+
+# If sway-desktop-environment was requested, configure Sway to launch on TTY1
+if [[ $ENVIRONMENT == sway-desktop ]]; then
+	cat <<- 'END'
+		The Sway desktop environment has been requested,
+		configuring Sway to launch after sign-in on TTY1 ...
+	END
+	mkdir -p /mnt/etc/skel/.bashrc.d
+	sed '1d; $d; s/\t\{2\}//;' > /mnt/etc/skel/.bashrc.d/99-sway-on-tty1 <<< '
+		if [[ -x /usr/bin/sway ]] && [[ $(tty) == /dev/tty1 ]]; then
+			SSH_AGENT=()
+			if [[ -x /usr/bin/ssh-agent ]] && [[ -e $XDG_RUNTIME_DIR ]]; then
+				SSH_AGENT=(
+					/usr/bin/ssh-agent -a "$XDG_RUNTIME_DIR/ssh.socket"
+				)
+			fi
+
+			# uncomment the following if you need to enable software rendering
+			# (e.g. might be needed for an old server with limited graphics HW)
+			# export WLR_RENDERER="pixman"
+			# export WLR_RENDERER_ALLOW_SOFTWARE="1"
+			# export LIBGL_ALWAYS_SOFTWARE="true"
+
+			printf "launching sway ...\n"
+			exec 0<&- &> /dev/null
+			exec "${SSH_AGENT[@]}" /usr/bin/sway
+		fi
+	'
+	# homelock does not work with graphical desktop managers
+	if [[ $ENCRYPTION == on ]]; then
+		systemctl --root=/mnt set-default multi-user.target
+	fi
+	printf '\n'
+fi
+
+systemctl --root=/mnt disable initial-setup.service &> /dev/null || :
+
+function _useradd {
+	export USERNAME="${@: -1}"
+
+	if
+		perl -e 'exit $ENV{"USERNAME"} =~ m{^[a-z_][[:word:].-]{0,31}$}iaa;'
+	then
+		printf "error: invalid username\n\n"
+		sleep 3
+		return 1
+	fi
+
+	if
+		chroot /mnt /usr/bin/id -u "$USERNAME" &> /dev/null
+	then
+		printf "error: account '$USERNAME' already exists\n\n"
+		sleep 3
+		return 1
+	fi
+
+	if
+		! chroot /mnt /usr/bin/useradd -M "$@"
+	then
+		sleep 3
+		return 1
+	fi
+
+	function undo {
+		trap '' int
+		(
+			if [[ $ENCRYPTION != on ]]; then
+				umount "/mnt/home/$USERNAME"
+				rmdir "/mnt/home/$USERNAME"
+				sed -i "\:\s$home\s:d" "/mnt/etc/fstab"
+			fi
+			zfs destroy "${ZFSROOT%%/*}/$USERNAME"
+			chroot /mnt /usr/bin/userdel -r "$USERNAME"
+		) &> /dev/null || :
+		printf "error: failed to create account '$USERNAME'\n\n"
+		sleep 3
+	}
+	trap 'undo; return 1' int
+
+	secret=''
+	while [[ -z $secret ]] || \
+		! printf '%s\n' "$secret" | chroot /mnt /usr/bin/passwd -s "$USERNAME"
+	do
+		[[ -n $secret ]] && \
+			printf "failed to set $USERNAME's password, retrying ...\n\n"
+		read -r -e -s -p 'New password: ' secret || :
+		if (( ${#secret} < 8 )); then
+			cat <<- END 1>&2
+				Sorry, password must be at least eight characters long.
+				passwd: Authentication token manipulation error
+				passwd: password unchanged
+				failed to set $USERNAME's password, retrying ...
+
+			END
+			secret=''
+			continue
+		fi
+		read -r -e -s -p 'Retype new password: ' retype || :
+		if [[ $retype != $secret ]]; then
+			cat <<- END 1>&2
+				Sorry, passwords do not match.
+				passwd: Authentication token manipulation error
+				passwd: password unchanged
+				failed to set $USERNAME's password, retrying ...
+
+			END
+			secret=''
+			continue
+		fi
+	done
+	printf "passwd: password updated successfully\n\n"
+
+	opts=()
+	if [[ $ENCRYPTION == on ]]; then
+		opts+=(
+			-o mountpoint="/home/$USERNAME"
+			-o encryption=on
+			-o keylocation=prompt
+			-o keyformat=passphrase
+		)
+		printf "$secret\n" | zfs create "${opts[@]}" "${ZFSROOT%%/*}/$USERNAME"
+	else
+		opts+=(
+			-o mountpoint=legacy
+		)
+		zfs create "${opts[@]}" "${ZFSROOT%%/*}/$USERNAME"
+		mkdir -m 0000 "/mnt/home/$USERNAME"
+		cat <<- END >> "/mnt/etc/fstab"
+			${ZFSROOT%%/*}/$USERNAME /home/$USERNAME zfs nofail 0 0
+		END
+		chroot /mnt mount "/home/$USERNAME" &> /dev/null
+	fi
+
+	trap '' int
+
+	if ! mountpoint -q "/mnt/home/$USERNAME"; then
+		undo
+		return 1
+	fi
+
+	cat <<- 'END' | chroot "/mnt" /usr/bin/bash
+		shopt -s dotglob
+		. <(sed -n '/^HOME_MODE/ { s/\s\+/=/; p; }' /etc/login.defs)
+		if ! mountpoint -q "/home/$USERNAME"; then
+			printf "warning: failed to initialize '/home/$USERNAME'\n\n"
+			exit 0
+		fi
+		cp -r /etc/skel/* "/home/$USERNAME"
+		chmod -R "${HOME_MODE:-0700}" "/home/$USERNAME"
+		chown -R "$USERNAME:" "/home/$USERNAME"
+		restorecon -r "/home/$USERNAME"
+	END
+
+	if [[ $ENCRYPTION == on ]]; then
+		. <(grep '^USERS=.*$' "/mnt/etc/security/homelock.conf")
+		USERS+=($USERNAME)
+		sed -i "/^USERS=/ { s/=.*/=(${USERS[*]})/; }" \
+			"/mnt/etc/security/homelock.conf"
+	fi
+
+	printf "created account '$USERNAME'\n\n"
+	sleep 3
+	return 0
+}
+
+# ask to set root's password
+printf "setting root's password ...\n"
+while ! "${CHROOT[@]}" /usr/bin/passwd root; do
+	printf "failed to set root's password, retrying ...\n\n"
+done
+printf '\n'
+
+# the OS install is now in a (potentially) usable state,
+# make the "self-destruct" call a no-op
+function self-destruct { :; }
+
+# ask to create additional accounts
+trap '' int
+while
+	cat <<- 'END'
+
+		To create a user account, enter a username now.
+
+		Prefix [1m-G wheel[22m to grant the user [1msudo[22m.
+		Prefix [1m-c "<display name>"[22m to set a display name.
+		Enter [1m-h[22m (or nothing) to list all options.
+
+		The username must:
+
+		- be last if options are supplied
+		- start with a letter
+		- be alphanumeric (a-z, 0-9)
+		  dots (.), dashes (-), and underscores (_) are also allowed
+		- be 32 characters or less
+
+		The display name must not contain a comma (,).
+
+		Press [1mctrl-c[22m to cancel an in-progress account creation.
+		Press [1mctrl-d[22m to indicate you are done creating accounts.
+
+	END
+	read -r -e -p 'useradd: ' userspec
+do
+	xargs -r -n 1 printf -- '%s\n' <<< "$userspec" \
+		| readarray -t ARGS || continue
+	if [[ ${#ARGS[@]} -gt 0 ]] && [[ ${ARGS[-1]} != -* ]]; then
+		if [[ ${#ARGS[@]} -gt 1 ]] && [[ ${ARGS[0]} != -* ]]; then
+			printf 'error: the username must be the last parameter\n\n'
+			continue
+		fi
+		_useradd "${ARGS[@]}" || :
+		trap '' int
+	else
+		printf '\n\n'
+		chroot /mnt /usr/bin/useradd --help \
+			| perl -gpe '
+				s/^.*Options:\n/useradd: \[options\] <username>\n\n/s;
+				s/^\s+-(?:b|-btrfs|d|D|m|M|p|R|P)\b.*?\n(?:\s+[^\s-].*?\n)*//mg;
+			'
+			printf 'press any key to continue\n'
+			read -r -s -n 1
+	fi
+done
+trap - int
+printf '\n'
+
+if [[ $BIOSBOOT == true ]]; then
+	(
+		set -e
+		cp -r "${DEVDIR:?}" /mnt/tmp
+		cp -r biosboot* /mnt/root
+		if grep -q '^nameserver\s\+127\.' /etc/resolv.conf; then
+			# mock cannot access services listening on the host's loopback device
+			# fallback to using a well-known public DNS service
+			cat <<- 'END' > /mnt/etc/resolv.conf
+				nameserver 8.8.8.8
+				nameserver 2001:4860:4860::8888
+				nameserver 8.8.4.4
+				options edns0 trust-ad
+			END
+		else
+			cat /etc/resolv.conf > /mnt/etc/resolv.conf
+		fi
+		export ZFSROOT RV DEVDIR="/tmp/${DEVDIR##*/}"
+		"${CHROOT[@]}" /root/biosboot
+		rm -rf "/mnt/tmp/${DEVDIR##*/}"
+		> /mnt/etc/resolv.conf
+	) || :
+fi
+
+# prevent ctrl-c from showing "^C" and killing this script
+# (the interrupt should still hit the child process, however)
+trap 'printf "\e[2D\e[0K";' int
+
+# report success from here on out,
+# regardless of what happens
+trap 'cleanup; exit 0;' exit
+
+# disable the generic fstrim.timer and enable zfs-trim-weekly@.timer
+# instead. fstrim doesn't work on ZFS and we've set the equivalent "discard"
+# option for the ESPs in /etc/fstab.
+systemctl --root=/mnt disable fstrim.timer || :
+if zpool get -H -o source autotrim "${ZFSROOT%%/*}" | grep -q 'default'; then
+	systemctl --root=/mnt enable "zfs-trim-weekly@${ZFSROOT%%/*}.timer"
+fi
+printf '\n'
+
+# make sure all the filesystems are mounted
+"${CHROOT[@]}" mount -a &> /dev/null
+
+# remove some incompatible packages and ban them from future installation
+XXX=(
+	'shim-*'
+	'grub2-*'
+	'os-prober'
+	'grubby'
+	'dracut-config-rescue'
+	'zfs-fuse'
+	'anaconda'
+	'anaconda-*'
+	'kdump-anaconda-addon'
+	'initial-setup'
+)
+(
+	shopt -uo pipefail
+	"${CHROOT[@]}" rpm -qa \
+		| grep "${XXX[@]/*/--regexp=^&-}" \
+		| xargs -r "${CHROOT[@]}" rpm -e
+	IFS=','; "${CHROOT[@]}" "${DNF[@]}" \
+		config-manager setopt "excludepkgs=${XXX[*]}";
+)
+printf '\n'
+
+# https://bugzilla.redhat.com/show_bug.cgi?id=2369250
+FILE='/mnt/etc/dkms/framework.conf.d/override.conf'
+mkdir -p "${FILE%/*}"
+printf '%s\n' 'post_transaction=""' > "${FILE}"
+
+# the following script is not enabled by default because it is destructive.
+# use sudo chmod +x /etc/kernel/install.d/89-snapshot-remove.install
+# to enable it. see the main readme for more info about what it is for.
+FILE='/mnt/etc/kernel/install.d/89-snapshot-remove.install'
+cat <<- 'END' > "$FILE"
+	#!/usr/bin/sh
+
+	set -e
+
+	trap 'exit 0' exit
+
+	COMMAND="${1:?}"
+	KERNEL_VERSION="${2:?}"
+
+	[ "$COMMAND" = "remove" ]
+	[ "$KERNEL_INSTALL_LAYOUT" = "bls" ]
+
+	ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+	BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+	LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+	ROOTFS=''
+	for option in $(grep '^options\s' "$LOADER_ENTRY"); do
+	  ROOTFS="$(expr "$option" : 'root=zfs:\(.*\)')" && break
+	done
+
+	[ -n "$ROOTFS" ]
+
+	zfs destroy "$ROOTFS@$KERNEL_VERSION"
+END
+
+# updates are done last so earlier stages of the installation will be
+# predicable/reproducible.
+DNF=(${DNF[@]/--repo=*/})
+prompt 'install the latest package updates (recommended)?'
+if [[ $ANSWER == y ]]; then
+	"${CHROOT[@]}" "${DNF[@]}" \
+		--disablerepo=zfs* \
+		--exclude=kernel* \
+		-x audit -x audit-libs -x audit-rules -x python3-audit \
+		distro-sync
+	"${CHROOT[@]}" "${DNF[@]}" install rpmconf
+	"${CHROOT[@]}" rpmconf -a -u use_maintainer
+fi
+
+"${CHROOT[@]}" dnf clean all &> /dev/null
+> /mnt/etc/resolv.conf
+
+# unmount the ESPs to be sure their file systems are flushed to disk
+for mp in /mnt/boot /mnt/boot@?; do
+	mountpoint -q "$mp" && umount "$mp" || :
+done
+if ! mountpoint -q /mnt/boot; then
+	(
+		shopt -s dotglob
+		rm -rf /mnt/boot/*
+	)
+fi
+printf '\n'
+
+realpath $DEVDIR/vd? | readarray -t DRIVES
 if [[ -e $UEFI ]] && type efibootmgr &> /dev/null; then
 	prompt "\nUEFI detected, update this system's default boot order?"
 	printf '\n'
@@ -586,27 +1155,22 @@ if [[ -e $UEFI ]] && type efibootmgr &> /dev/null; then
 				efibootmgr -b "${BASH_REMATCH[1]}" -B > /dev/null || :
 			fi
 		done
+		INDEX=0
 		LETTERS=({A..Z})
-		while [[ ${#FILE[@]} -gt 0 ]]; do
-			LETTER=${LETTERS[$((${#FILE[@]}-1))]}
-			if [[ -n $LETTER ]]; then
-				efibootmgr -c \
-					-d "${FILE[-1]}" \
-					-l "/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi" \
-					-L "SD-BOOT $LETTER" | readarray STATUS
-			fi
-			unset FILE[-1]
+		LOADER="/efi/systemd/systemd-boot${ARCH/x86_64/x64}.efi"
+		while [[ -n ${DRIVES[$INDEX]} ]]; do
+			LABEL="SD-BOOT ${LETTERS[$INDEX]:-?}"
+			DRIVE="${DRIVES[$INDEX]}"
+			printf 'adding "%s" -> (%s, partition 1):%s\n' "$LABEL" "$DRIVE" "$LOADER"
+			efibootmgr -c -L "$LABEL" -d "$DRIVE" -l "$LOADER" | readarray STATUS
+			INDEX=$((INDEX+1))
 		done
-		printf '%s' "${STATUS[@]}"
+		printf '%s' "\n" "${STATUS[@]}"
 	fi
 fi
 
-rm -rf efi
-mv "$RV/efi" efi
-
 cat <<- END
 
-	The UEFI firmware images needed to boot the installed system
-	with QEMU have been saved under the [1mefi[22m directory.
+	The installation of $ENVIRONMENT-environment on ${DRIVES[*]} is complete!
 
 END

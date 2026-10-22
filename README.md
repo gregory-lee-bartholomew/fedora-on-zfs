@@ -18,7 +18,7 @@ The following commands, if run from a Fedora Linux live image, will download thi
     # git clone https://github.com/gregory-lee-bartholomew/fedora-on-zfs.git
     # cd fedora-on-zfs
     # ./prereqs
-    # ./install fedora-disk-minimal.ks /dev/sdX /dev/sdY
+    # ./install custom-environment /dev/sdX /dev/sdY
 
 The script will fetch a fresh copy of the Fedora kickstarts from https://pagure.io/fedora-kickstarts/ if the fedora-kickstarts repo has not already been cloned. Other fedora-disk-\*.ks kickstart scripts should also work, but they will take longer to complete. An alternative to using the default Fedora Workstation/KDE/etc kickstarts would be to first get your root on ZFS Fedora Linux install working with the minimal kickstart and then use a command like `sudo dnf --exclude=kernel-core install @kde-desktop-environment; systemctl set-default graphical.target` to upgrade it to one of the larger desktop enviornments (use `dnf environment list` to list available enviroments).
 
@@ -35,8 +35,6 @@ This script will also configure the installed system to *exclude* ZFS and the Li
 **Note**: This installation script configures UEFI booting by default. If you need legacy BIOS booting, uncomment the `BIOSBOOT='biosboot.ks'` line in `config/evariables.conf`. Most PCs less than a decade old support the newer UEFI boot protocol.
 
 **Note**: Due to the nature of how the Fedora Linux live images work, and because this script uses QEMU to run *another* instance of the Fedora Linux OS, this script requires a great deal of RAM to run to completion. If your system does not have sufficiant RAM for this script, you can work around the problem by attaching an extra USB drive and using it to create extra "virtual" (swap) memory. Use `mkswap --force --label swap /dev/sdZ` to format the USB device as swap memory. Then reboot the Fedora Linux live image and add the kernel parameter `systemd.swap-extra=/dev/disk/by-label/swap` to activate it. (You might want to add `3` to the list of kernel parameters while you are at it to avoid loading the full graphical environment. Recent Fedora Linux live images will let you sign in with `root` and a blank password.) The additional memory should be visible in the output of the `free -m` command. **Warning**: Adding swap memory as a workaround for insufficient RAM will make the installation *very* slow! If, after adding extra swap memory, QEMU errors out with something along the lines of `phys-bits too low`, you probably added too much swap memory. Try partitioning the USB drive first to limit the size of the swap image (e.g. `sgdisk -z -n 0:0:+8GiB -t 0:8200 -c 0:swap /dev/sdZ`, then `mkswap --force --label swap /dev/sdZ1`). Also, you might need to add `rd.live.overlay.overlayfs` to the kernel command line and run `mount -o remount,size=3G /run` if the install script (curl) runs out of space when downloading the boot images. Using these parameters, I have succeeded in running this script on a 2008 PC with 4GiB of RAM. (Don't forget to uncomment BIOSBOOT in config/evariables.conf if necessary.)
-
-**Note**: Network connectivity problems have been reported when attempting to run this script from within VirtualBox with virtualbox-guest-additions installed. The open issue report can be found [here](https://github.com/gregory-lee-bartholomew/fedora-on-zfs/issues/2) and if anyone knows how to resolve the problem, I welcome your feedback. 🙂
 
 # Helper Scripts (`oscp` and `osrm`)
 
@@ -463,24 +461,6 @@ It is possible to run graphical applications in Systemd containers. I have not a
 
 - [How to set up nested Wayland Desktop Environment with systemd-nspawn container, like VirtualBox](https://stackoverflow.com/questions/43286518/how-to-set-up-nested-wayland-desktop-environment-with-systemd-nspawn-container)
 
-# Known Bugs
-
-In rare cases, I've seen systemd get confused about which is the correct machine-id for the running system after running the os?? scripts. A reboot will clear the problem, but one of the side-effects of the problem is that the normal `shutdown -r now` command does not work. As a workaround, `systemctl --force --force reboot` can be used to forcibly reboot your system.
-
-# Demo (installation)
-
-[Installation Demo (SVG 1.8MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/install-demo.svg)
-
-If the above animated SVG doesn't play after clicking the link, try refreshing the page. Also, the file is somewhat large. You might need to wait a bit for it to render. Also, the animations seem to play a little smoother in Firefox than they do in Chrome.
-
-# Testing (optional)
-
-There is a `boot` script in the root of this repository that I used to test the installations during development of this script. 
-
-# Demo (booting and updating the kernel)
-
-[Boot Demo (SVG 1.6MB)](https://raw.githubusercontent.com/gregory-lee-bartholomew/fedora-on-zfs/main/boot-demo.svg)
- 
 # Disclaimer
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.

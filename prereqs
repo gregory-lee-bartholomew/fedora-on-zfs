@@ -13,13 +13,11 @@ declare -A PREREQS=(
 	/usr/bin/git git-core
 	/usr/bin/curl curl
 	/usr/bin/jq jq
-	/usr/bin/awk gawk
 	/usr/bin/sed sed
 	/usr/bin/cpio cpio
-	/usr/bin/gpg gnupg2
-	/usr/bin/ssh-keygen openssh
-	/usr/share/edk2/ovmf edk2-ovmf
-	"/usr/bin/qemu-system-$ARCH" "qemu-system-${ARCH%%_*}-core"
+	/usr/bin/sq sequoia-sq
+	/usr/bin/sgdisk gdisk
+	/usr/bin/mkfs.vfat dosfstools
 )
 
 if [[ -e /sys/firmware/efi/efivars ]]; then
