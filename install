@@ -344,6 +344,9 @@ else
 			| grep -o "zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm" \
 			| sort -r -t '.' -k 2 \
 			| read RPM
+		if [[ -z $RPM ]]; then
+			fail "No zfs-release[[:alnum:]\-]*.fc$RV.noarch.rpm found."
+		fi
 		cp "fedora/$RPM" "$TEMP"
 		printf "%s\n" "$RPM"
 	) | read ZKEY || fail "ZFS certificate for Fedora Linux $RV not found at $ZREP.\n"
