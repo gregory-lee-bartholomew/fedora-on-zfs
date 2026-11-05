@@ -407,7 +407,7 @@ for d in "${DOWNLOADED[@]}"; do
 	if [[ $ANSWER == y ]]; then
 		printf "Installing $RPM.\n"
 		if rpm --query "${RPM%.rpm}" &> /dev/null; then
-			rpm --reinstall "$d"
+			rpm --noverify --reinstall "$d"
 		else
 			rpm --noverify --install "$d"
 		fi
@@ -490,14 +490,14 @@ for d in $DEVDIR/vd[a-z]; do
 done
 
 # kernel-devel is required to build the zfs driver
-"${DNF[@]}" install kernel kernel-devel kernel-headers \
+"${DNF[@]}" install --skip-broken kernel kernel-devel kernel-headers \
 	|& grep -v '^>>> '
 
 # bug?
 ln -snf /usr/src/kernels/$(uname -r) /lib/modules/$(uname -r)/build
 
 # build the zfs driver (uses dkms)
-"${DNF[@]}" --repo=zfs install libunwind zfs
+"${DNF[@]}" --repo=zfs install --skip-broken libunwind zfs
 printf '\n'
 
 # create a hostid for zfs

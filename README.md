@@ -17,6 +17,10 @@ See [YouTube: OpenZFS Basics](https://www.youtube.com/watch?v=MsY-BafQgj4) if yo
 > Consequently, v5.0 of this installation script has been completely rewritten to use pure Bash shell scripting and dnf environment groups instead of kickstart scripts.
 > If you have used earlier versions of this script, beware that one significant difference with this new version is that it installs the ZFS kernel driver directly on the host system it is run on (if it is not already installed). It is expected (but not required) that this script is run in a live image or some other kind of ephemeral environment (for example, a virtual machine).
 
+> [!IMPORTANT]
+> Due to package version conflicts, the installer does not currently work on Fedora Linux 45 install media.
+> As a workaround, you can use the Fedora Linux 44 install media that is available here: https://download.fedoraproject.org/pub/fedora/linux/releases/44/Workstation/x86_64/iso/
+
 The following commands, if run from a Fedora Linux live image, will download this script and use it to install a minimal Fedora Linux OS with a mirrored-disk configuration on /dev/sdX and /dev/sdY. All existing data on /dev/sdX and /dev/sdY will be erased. You might need to install the `git-core` package if the git command is unavailable. **TIP**: Try running `lsblk -o +model` if you are unsure what device paths correspond to the disks on which you want to install Fedora Linux.
 
     $ sudo -i
