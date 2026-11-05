@@ -276,6 +276,11 @@ then
 	fail "[1m${ZFSRAID}[22m requires at least $((${BASH_REMATCH[1]}+1)) drives."
 fi
 
+if [[ -e /usr/share/pki/rpm-gpg ]]; then
+	RPM_GPG_PATH=/usr/share/pki/rpm-gpg
+else
+	RPM_GPG_PATH=/etc/pki/rpm-gpg
+fi
 REPO='/etc/yum.repos.d/fedora-custom.repo'
 cat <<- END > "$REPO"
 	[fedora-custom]
@@ -287,7 +292,7 @@ cat <<- END > "$REPO"
 	repo_gpgcheck=0
 	type=rpm
 	gpgcheck=1
-	gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$RV-$ARCH
+	gpgkey=file://$RPM_GPG_PATH/RPM-GPG-KEY-fedora-$RV-$ARCH
 	skip_if_unavailable=False
 	exclude_from_weak=*-firmware
 END
@@ -305,7 +310,7 @@ DNF=(
 mktemp -d | read TEMP
 CLEANUP+=("rm -rf '$TEMP'")
 which curl rpm2cpio cpio sq 1> /dev/null
-if ! [[ -e /etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$RV-$ARCH ]]; then
+if ! [[ -e $RPM_GPG_PATH/RPM-GPG-KEY-fedora-$RV-$ARCH ]]; then
 	printf "Downloading Fedora certificates from $FREP ...\n"
 	${DNF[@]/-q/} download --releasever="$RV" --destdir="$TEMP" fedora-gpg-keys \
 		|| fail 'Failed to download Fedora certificates. Is $FREP correct?\n'
@@ -346,7 +351,7 @@ fi
 printf '\n'
 
 # ask the user to verify the keys
-find "/etc/pki/rpm-gpg" -type f -name 'RPM-GPG-KEY-*' \
+find "$RPM_GPG_PATH" -type f -name 'RPM-GPG-KEY-*' \
 	-exec sq keyring list '{}' \; \
 	| grep -o '[[:xdigit:]]\{40\}' | readarray -t INSTALLED
 find "$TEMP" -maxdepth 1 -type f -name '*.rpm' \
@@ -404,7 +409,7 @@ for d in "${DOWNLOADED[@]}"; do
 		if rpm --query "${RPM%.rpm}" &> /dev/null; then
 			rpm --reinstall "$d"
 		else
-			rpm --install "$d"
+			rpm --noverify --install "$d"
 		fi
 		if [[ $RPM == $ZKEY ]]; then
 			cp "$d" .
