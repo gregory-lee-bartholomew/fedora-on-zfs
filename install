@@ -1176,7 +1176,7 @@ if [[ -e $UEFI ]] && type efibootmgr &> /dev/null; then
 			efibootmgr -c -L "$LABEL" -d "$DRIVE" -l "$LOADER" | readarray STATUS
 			INDEX=$((INDEX-1))
 		done
-		printf '%s' "\n" "${STATUS[@]}"
+		printf '%s' $'\n' "${STATUS[@]}"
 	fi
 fi
 
