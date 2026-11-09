@@ -1186,3 +1186,5 @@ cat <<- END
 	on [1m${DRIVES[*]}[22m is complete!
 
 END
+
+read -r -n 1 -s -p 'press any key to close the install script'; echo
