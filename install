@@ -7,7 +7,7 @@ shopt -s lastpipe
 shopt -s extglob
 shopt -s nocasematch
 
-trap 'printf "\e[2D\e[0K\n; exit 1"' int
+trap 'printf "\e[2D\e[0K\n"; exit 1' int
 
 function prompt {
 	ANSWER=''
