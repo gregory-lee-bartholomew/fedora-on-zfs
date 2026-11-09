@@ -88,6 +88,7 @@ if type -p zpool &> /dev/null; then
 fi
 
 declare -a CLEANUP=()
+mktemp -d | read MNT
 function self-destruct { :; }
 function cleanup {
 	set +e
@@ -110,6 +111,8 @@ function cleanup {
 
 	# Destroy the ZFS pool if a bootable installation was not achieved.
 	self-destruct
+
+	[[ -d $MNT ]] && rmdir "$MNT"
 }
 trap 'cleanup' exit
 
@@ -514,7 +517,7 @@ fi
 
 printf 'initializing zfs file systems ...\n\n'
 
-zpool create -f -m none -R /mnt \
+zpool create -f -m none -R "$MNT" \
 	$(grep -i '^-o ' config/properties.conf) \
 	"${ZFSROOT%%/*}" $ZFSRAID /dev/disk/by-partlabel/root@[a-z]
 
@@ -544,58 +547,58 @@ zfs create -o canmount=noauto -o mountpoint=/ "$ZFSROOT"
 	done
 )
 zfs mount "$ZFSROOT"
-CLEANUP+=("umount -R /mnt")
+CLEANUP+=("umount -R '$MNT'")
 
 # double-check that the zfs operations were successful
-mountpoint -q /mnt
+mountpoint -q "$MNT"
 (
 	IFS=$'\n'
 	for mp in $(<config/filesystems.conf); do
 		[[ $mp == /* ]] || continue
-		mountpoint -q "/mnt$mp" || exit
+		mountpoint -q "$MNT$mp" || exit
 	done
 )
 
-zfs list -r "${ZFSROOT%%/*}" | sed "s# /mnt/\?# /#;"
+zfs list -r "${ZFSROOT%%/*}" | sed "s# $MNT/\?# /#;"
 printf '\n'
 
 LIST="dev proc sys run"
 for i in $LIST; do
-	mount -o X-mount.mkdir=755 --rbind "/$i" "/mnt/$i"
-	mount --make-rslave "/mnt/$i"
-	CLEANUP+=("umount -R '/mnt/$i'")
+	mount -o X-mount.mkdir=755 --rbind "/$i" "$MNT/$i"
+	mount --make-rslave "$MNT/$i"
+	CLEANUP+=("umount -R '$MNT/$i'")
 done
-mount -o X-mount.mkdir=755 --bind "/tmp" "/mnt/tmp"
-CLEANUP+=("umount '/mnt/tmp'")
+mount -o X-mount.mkdir=755 --bind "/tmp" "$MNT/tmp"
+CLEANUP+=("umount '$MNT/tmp'")
 
 "${DNF[@]}" \
 	--use-host-config \
-	--installroot=/mnt install \
+	--installroot="$MNT" install \
 	"@$ENVIRONMENT-environment" \
 	langpacks-en glibc-langpack-en
 printf '\n'
 
 # copy the fedora-custom repo def. to the installed system
-mkdir -p "/mnt${REPO%/*}"
-cp "$REPO" "/mnt$REPO"
-CLEANUP+=("rm -f '/mnt$REPO'")
+mkdir -p "$MNT${REPO%/*}"
+cp "$REPO" "$MNT$REPO"
+CLEANUP+=("rm -f '$MNT$REPO'")
 
 # copy the gpg keys to the installed system
-cp "$ZKEY" "/mnt/var/tmp"
+cp "$ZKEY" "$MNT/var/tmp"
 
 # avoid unnecessarily recompiling zfs
-cp -a /var/lib/dkms "/mnt/var/lib"
-cp -a /usr/src/zfs-* "/mnt/usr/src"
+cp -a /var/lib/dkms "$MNT/var/lib"
+cp -a /usr/src/zfs-* "$MNT/usr/src"
 
 # let zfs know that this host and the installed system are the same
-cp -v /etc/hostid "/mnt/etc/hostid"
+cp -v /etc/hostid "$MNT/etc/hostid"
 
 # initialize the installed system's unique machine id
-systemd-firstboot --force --root="/mnt" --setup-machine-id
+systemd-firstboot --force --root="$MNT" --setup-machine-id
 
-MACHINE_ID="$(</mnt/etc/machine-id)"
+MACHINE_ID=$(<"$MNT/etc/machine-id")
 CHROOT=(
-	chroot /mnt
+	chroot "$MNT"
 	/bin/env MACHINE_ID="$MACHINE_ID"
 )
 
@@ -604,12 +607,12 @@ CHROOT=(
 
 # remove random seed, the newly-\
 # installed instance should make its own
-rm -f /mnt/var/lib/systemd/random-seed
+rm -f "$MNT/var/lib/systemd/random-seed"
 
 # install zfs on the target system
 "${CHROOT[@]}" rpm --nodeps --erase zfs-fuse &> /dev/null || :
 "${CHROOT[@]}" "${DNF[@]}" install "/var/tmp/$ZKEY"
-FILE='/mnt/etc/kernel/install.d/00-abort.install'
+FILE="$MNT/etc/kernel/install.d/00-abort.install"
 mkdir -p "${FILE%/*}"
 cat <<- 'END' > "$FILE"
 	#!/bin/sh
@@ -619,21 +622,21 @@ chmod +x "$FILE"
 "${CHROOT[@]}" "${DNF[@]}" --repo=zfs \
 	install libunwind kernel kernel-devel zfs zfs-dracut
 rm -f "$FILE"
-printf 'add_drivers+=" zfs "\n' > /mnt/etc/dracut.conf.d/zfs.conf
+printf 'add_drivers+=" zfs "\n' > "$MNT/etc/dracut.conf.d/zfs.conf"
 
 # install systemd-boot
 # (also causes the initramfs to be generated with the zfs drivers)
 TIMEOUT=10
-DEFAULT="$(</mnt/etc/machine-id)-*"
-mkdir -p /mnt/etc/kernel/install.d
-cat <<- END > /mnt/etc/kernel/cmdline
+DEFAULT=$(<"$MNT/etc/machine-id")-\*
+mkdir -p "$MNT/etc/kernel/install.d"
+cat <<- END > "$MNT/etc/kernel/cmdline"
 	root=zfs:$ZFSROOT $CMDLINE
 END
-cat <<- END > /mnt/etc/kernel/install.conf
+cat <<- END > "$MNT/etc/kernel/install.conf"
 	BOOT_ROOT=/boot
 	layout=bls
 END
-FILE='/mnt/etc/kernel/install.d/91-loaderentry-update-title.install'
+FILE="$MNT/etc/kernel/install.d/91-loaderentry-update-title.install"
 cat <<- 'END' > "$FILE"
 	#!/usr/bin/sh
 
@@ -664,14 +667,14 @@ cat <<- 'END' > "$FILE"
 END
 chmod +x "$FILE"
 printf 'hostonly="no"\n' \
-	> /mnt/etc/dracut.conf.d/hostonly.conf
-if mountpoint -q /mnt/boot; then
-	umount -q /mnt/boot
+	> "$MNT/etc/dracut.conf.d/hostonly.conf"
+if mountpoint -q "$MNT/boot"; then
+	umount -q "$MNT/boot"
 fi
-sed -i '\#^\s*/boot\b# d' /mnt/etc/fstab &> /dev/null || :
+sed -i '\#^\s*/boot\b# d' "$MNT/etc/fstab" &> /dev/null || :
 (
 	shopt -s dotglob
-	rm -rf /mnt/boot/*
+	rm -rf "$MNT/boot"/*
 )
 "${CHROOT[@]}" "${DNF[@]}" install systemd-boot-unsigned
 if "${CHROOT[@]}" "${DNF[@]}" install plymouth-theme-script; then
@@ -682,7 +685,7 @@ if "${CHROOT[@]}" "${DNF[@]}" install plymouth-theme-script; then
 		"${CHROOT[@]}" plymouth-set-default-theme script || :
 	fi
 fi
-ls -v -r /mnt/lib/modules | read KVER
+ls -v -r "$MNT/lib/modules" | read KVER
 if ! "${CHROOT[@]}" dkms status -k "$KVER" | grep -q 'installed$'; then
 	"${CHROOT[@]}" rpm -q --qf='%{VERSION}\n' zfs | read MVER
 	"${CHROOT[@]}" dkms uninstall -m zfs -v "$MVER" -k "$KVER" || :
@@ -698,8 +701,8 @@ for disk in $DEVDIR/vd[a-z]; do
 
 	printf "initializing ${part} as EFI system partition ${name} ...\n"
 	mkfs -t vfat -n ${name} ${part} || continue
-	mkdir -v /mnt/${name} || continue
-	tr -d '\t' <<- END | tee -a /mnt/etc/fstab || continue
+	mkdir -v "$MNT/${name}" || continue
+	tr -d '\t' <<- END | tee -a "$MNT/etc/fstab" || continue
 		PARTLABEL=${name} \
 		/${name} \
 		vfat \
@@ -719,7 +722,7 @@ for disk in $DEVDIR/vd[a-z]; do
 		continue
 	fi
 	bootctl install \
-		--root=/mnt \
+		--root="$MNT" \
 		--entry-token="literal:$MACHINE_ID" \
 		--make-entry-directory=yes \
 		--no-variables \
@@ -728,12 +731,12 @@ for disk in $DEVDIR/vd[a-z]; do
 	printf '\n'
 
 	sed -i -n -e '/^#\?default\s/I!p' -e "\$a default $DEFAULT" \
-		/mnt/${name}/loader/loader.conf || :
+		"$MNT/${name}/loader/loader.conf" || :
 
 	sed -i -n -e '/^#\?timeout\s/I!p' -e "\$a timeout $TIMEOUT" \
-		/mnt/${name}/loader/loader.conf || :
+		"$MNT/${name}/loader/loader.conf" || :
 
-	if ! mount -v -o bind /mnt/${name} /mnt/boot 2> /dev/null; then
+	if ! mount -v -o bind "$MNT/${name}" "$MNT/boot" 2> /dev/null; then
 		printf "error: failed to bind mount /${name} to /boot\n"
 		continue
 	fi
@@ -745,14 +748,14 @@ for disk in $DEVDIR/vd[a-z]; do
 	else
 		printf 'kernel-install failed\n'
 	fi
-	umount -v /mnt/boot || :
+	umount -v "$MNT/boot" || :
 	printf '\n'
 done
 
 # install the bootsync service to keep the ESPs sync'd
 SRCDIR='bootsync'
 if [[ -d "$SRCDIR" ]]; then
-	cp -r "$SRCDIR" /mnt/tmp
+	cp -r "$SRCDIR" "$MNT/tmp"
 	DIR=(env --chdir "/tmp/$SRCDIR")
 	cat <<- 'END'
 		Installing bootsync ...
@@ -767,7 +770,7 @@ fi
 # install the homelock service to support encrypted homes if requested
 SRCDIR='homelock'
 if [[ $ENCRYPTION == on ]] && [[ -d "$SRCDIR" ]]; then
-	cp -r "$SRCDIR" /mnt/tmp
+	cp -r "$SRCDIR" "$MNT/tmp"
 	DIR=(env --chdir "/tmp/$SRCDIR")
 	cat <<- 'END'
 		Installing homelock ...
@@ -789,7 +792,7 @@ if [[ -d "$SRCDIR" ]]; then
 		Installing supplemental executables ...
 		(feel free to remove these if you do not want them)
 	END
-	install -v * "/mnt/usr/local/bin" | sed 's!/mnt!!'
+	install -v * "$MNT/usr/local/bin" | sed "s!$MNT!!"
 	cd "$OLDPWD"
 	printf '\n'
 fi
@@ -800,8 +803,8 @@ if [[ $ENVIRONMENT == sway-desktop ]]; then
 		The Sway desktop environment has been requested,
 		configuring Sway to launch after sign-in on TTY1 ...
 	END
-	mkdir -p /mnt/etc/skel/.bashrc.d
-	sed '1d; $d; s/\t\{2\}//;' > /mnt/etc/skel/.bashrc.d/99-sway-on-tty1 <<< '
+	mkdir -p "$MNT/etc/skel/.bashrc.d"
+	sed '1d; $d; s/\t\{2\}//;' > "$MNT/etc/skel/.bashrc.d/99-sway-on-tty1" <<< '
 		if [[ -x /usr/bin/sway ]] && [[ $(tty) == /dev/tty1 ]]; then
 			SSH_AGENT=()
 			if [[ -x /usr/bin/ssh-agent ]] && [[ -e $XDG_RUNTIME_DIR ]]; then
@@ -823,12 +826,12 @@ if [[ $ENVIRONMENT == sway-desktop ]]; then
 	'
 	# homelock does not work with graphical desktop managers
 	if [[ $ENCRYPTION == on ]]; then
-		systemctl --root=/mnt set-default multi-user.target
+		systemctl --root="$MNT" set-default multi-user.target
 	fi
 	printf '\n'
 fi
 
-systemctl --root=/mnt disable initial-setup.service &> /dev/null || :
+systemctl --root="$MNT" disable initial-setup.service &> /dev/null || :
 
 function _useradd {
 	export USERNAME="${@: -1}"
@@ -842,7 +845,7 @@ function _useradd {
 	fi
 
 	if
-		chroot /mnt /usr/bin/id -u "$USERNAME" &> /dev/null
+		chroot "$MNT" /usr/bin/id -u "$USERNAME" &> /dev/null
 	then
 		printf "error: account '$USERNAME' already exists\n\n"
 		sleep 3
@@ -850,7 +853,7 @@ function _useradd {
 	fi
 
 	if
-		! chroot /mnt /usr/bin/useradd -M "$@"
+		! chroot "$MNT" /usr/bin/useradd -M "$@"
 	then
 		sleep 3
 		return 1
@@ -860,12 +863,12 @@ function _useradd {
 		trap '' int
 		(
 			if [[ $ENCRYPTION != on ]]; then
-				umount "/mnt/home/$USERNAME"
-				rmdir "/mnt/home/$USERNAME"
-				sed -i "\:\s$home\s:d" "/mnt/etc/fstab"
+				umount "$MNT/home/$USERNAME"
+				rmdir "$MNT/home/$USERNAME"
+				sed -i "\:\s$home\s:d" "$MNT/etc/fstab"
 			fi
 			zfs destroy "${ZFSROOT%%/*}/$USERNAME"
-			chroot /mnt /usr/bin/userdel -r "$USERNAME"
+			chroot "$MNT" /usr/bin/userdel -r "$USERNAME"
 		) &> /dev/null || :
 		printf "error: failed to create account '$USERNAME'\n\n"
 		sleep 3
@@ -874,7 +877,7 @@ function _useradd {
 
 	secret=''
 	while [[ -z $secret ]] || \
-		! printf '%s\n' "$secret" | chroot /mnt /usr/bin/passwd -s "$USERNAME"
+		! printf '%s\n' "$secret" | chroot "$MNT" /usr/bin/passwd -s "$USERNAME"
 	do
 		[[ -n $secret ]] && \
 			printf "failed to set $USERNAME's password, retrying ...\n\n"
@@ -919,21 +922,21 @@ function _useradd {
 			-o mountpoint=legacy
 		)
 		zfs create "${opts[@]}" "${ZFSROOT%%/*}/$USERNAME"
-		mkdir -m 0000 "/mnt/home/$USERNAME"
-		cat <<- END >> "/mnt/etc/fstab"
+		mkdir -m 0000 "$MNT/home/$USERNAME"
+		cat <<- END >> "$MNT/etc/fstab"
 			${ZFSROOT%%/*}/$USERNAME /home/$USERNAME zfs nofail 0 0
 		END
-		chroot /mnt mount "/home/$USERNAME" &> /dev/null
+		chroot "$MNT" mount "/home/$USERNAME" &> /dev/null
 	fi
 
 	trap '' int
 
-	if ! mountpoint -q "/mnt/home/$USERNAME"; then
+	if ! mountpoint -q "$MNT/home/$USERNAME"; then
 		undo
 		return 1
 	fi
 
-	cat <<- 'END' | chroot "/mnt" /usr/bin/bash
+	cat <<- 'END' | chroot "$MNT" /usr/bin/bash
 		shopt -s dotglob
 		. <(sed -n '/^HOME_MODE/ { s/\s\+/=/; p; }' /etc/login.defs)
 		if ! mountpoint -q "/home/$USERNAME"; then
@@ -947,10 +950,10 @@ function _useradd {
 	END
 
 	if [[ $ENCRYPTION == on ]]; then
-		. <(grep '^USERS=.*$' "/mnt/etc/security/homelock.conf")
+		. <(grep '^USERS=.*$' "$MNT/etc/security/homelock.conf")
 		USERS+=($USERNAME)
 		sed -i "/^USERS=/ { s/=.*/=(${USERS[*]})/; }" \
-			"/mnt/etc/security/homelock.conf"
+			"$MNT/etc/security/homelock.conf"
 	fi
 
 	printf "created account '$USERNAME'\n\n"
@@ -1007,7 +1010,7 @@ do
 		trap '' int
 	else
 		printf '\n\n'
-		chroot /mnt /usr/bin/useradd --help \
+		chroot "$MNT" /usr/bin/useradd --help \
 			| perl -gpe '
 				s/^.*Options:\n/useradd: \[options\] <username>\n\n/s;
 				s/^\s+-(?:b|-btrfs|d|D|m|M|p|R|P)\b.*?\n(?:\s+[^\s-].*?\n)*//mg;
@@ -1022,24 +1025,24 @@ printf '\n'
 if [[ $BIOSBOOT == true ]]; then
 	(
 		set -e
-		cp -r "${DEVDIR:?}" /mnt/tmp
-		cp -r biosboot* /mnt/root
+		cp -r "${DEVDIR:?}" "$MNT/tmp"
+		cp -r biosboot* "$MNT/root"
 		if grep -q '^nameserver\s\+127\.' /etc/resolv.conf; then
 			# mock cannot access services listening on the host's loopback device
 			# fallback to using a well-known public DNS service
-			cat <<- 'END' > /mnt/etc/resolv.conf
+			cat <<- 'END' > "$MNT/etc/resolv.conf"
 				nameserver 8.8.8.8
 				nameserver 2001:4860:4860::8888
 				nameserver 8.8.4.4
 				options edns0 trust-ad
 			END
 		else
-			cat /etc/resolv.conf > /mnt/etc/resolv.conf
+			cat /etc/resolv.conf > "$MNT/etc/resolv.conf"
 		fi
 		export ZFSROOT RV DEVDIR="/tmp/${DEVDIR##*/}"
 		"${CHROOT[@]}" /root/biosboot
-		rm -rf "/mnt/tmp/${DEVDIR##*/}"
-		> /mnt/etc/resolv.conf
+		rm -rf "$MNT/tmp/${DEVDIR##*/}"
+		> $MNT/etc/resolv.conf
 	) || :
 fi
 
@@ -1054,9 +1057,9 @@ trap 'cleanup; exit 0;' exit
 # disable the generic fstrim.timer and enable zfs-trim-weekly@.timer
 # instead. fstrim doesn't work on ZFS and we've set the equivalent "discard"
 # option for the ESPs in /etc/fstab.
-systemctl --root=/mnt disable fstrim.timer || :
+systemctl --root="$MNT" disable fstrim.timer || :
 if zpool get -H -o source autotrim "${ZFSROOT%%/*}" | grep -q 'default'; then
-	systemctl --root=/mnt enable "zfs-trim-weekly@${ZFSROOT%%/*}.timer"
+	systemctl --root="$MNT" enable "zfs-trim-weekly@${ZFSROOT%%/*}.timer"
 fi
 printf '\n'
 
@@ -1087,14 +1090,14 @@ XXX=(
 printf '\n'
 
 # https://bugzilla.redhat.com/show_bug.cgi?id=2369250
-FILE='/mnt/etc/dkms/framework.conf.d/override.conf'
+FILE="$MNT/etc/dkms/framework.conf.d/override.conf"
 mkdir -p "${FILE%/*}"
 printf '%s\n' 'post_transaction=""' > "${FILE}"
 
 # the following script is not enabled by default because it is destructive.
 # use sudo chmod +x /etc/kernel/install.d/89-snapshot-remove.install
 # to enable it. see the main readme for more info about what it is for.
-FILE='/mnt/etc/kernel/install.d/89-snapshot-remove.install'
+FILE="$MNT/etc/kernel/install.d/89-snapshot-remove.install"
 cat <<- 'END' > "$FILE"
 	#!/usr/bin/sh
 
@@ -1138,16 +1141,16 @@ if [[ $ANSWER == y ]]; then
 fi
 
 "${CHROOT[@]}" dnf clean all &> /dev/null
-> /mnt/etc/resolv.conf
+> "$MNT/etc/resolv.conf"
 
 # unmount the ESPs to be sure their file systems are flushed to disk
-for mp in /mnt/boot /mnt/boot@?; do
+for mp in "$MNT/boot" "$MNT"/boot@?; do
 	mountpoint -q "$mp" && umount "$mp" || :
 done
-if ! mountpoint -q /mnt/boot; then
+if ! mountpoint -q "$MNT/boot"; then
 	(
 		shopt -s dotglob
-		rm -rf /mnt/boot/*
+		rm -rf "$MNT"/boot/*
 	)
 fi
 printf '\n'
