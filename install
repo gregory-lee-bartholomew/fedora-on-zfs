@@ -1187,4 +1187,5 @@ cat <<- END
 
 END
 
+read -e -t 0.5 &> /dev/null || :
 read -r -n 1 -s -p 'press any key to close the install script'; echo
