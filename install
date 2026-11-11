@@ -563,9 +563,15 @@ CLEANUP+=("umount '$MNT/tmp'")
 
 "${DNF[@]}" \
 	--use-host-config \
-	--installroot="$MNT" install \
-	"@$ENVIRONMENT-environment" \
-	langpacks-en glibc-langpack-en
+	--installroot="$MNT" \
+	-x 'kernel' \
+	-x 'kernel-*' \
+	-x 'grub2-*' \
+	-x 'os-prober' \
+	-x 'dracut-config-rescue' \
+	install --skip-broken "@$ENVIRONMENT-environment" \
+	langpacks-en \
+	glibc-langpack-en
 printf '\n'
 
 # copy the fedora-custom repo def. to the installed system
