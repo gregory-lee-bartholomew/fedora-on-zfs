@@ -97,35 +97,10 @@ function cleanup {
 		unset CLEANUP[-1]
 	done
 
-	# **WHY** are these host services holding locks on the new ZFS pool???
-	trap '' int hup pipe quit term
-	{
-		grep "^${ZFSROOT%%/*}\b" /proc/*/mounts \
-			| cut -d '/' -f 3 \
-			| grep '^[0-9]\+$' \
-			| uniq \
-			| xargs -r -n 1 systemctl status \
-			| grep '^●' \
-			| cut -d ' ' -f 2 \
-			| readarray -t bad_services
-		for bs in "${bad_services[@]}"; do
-			echo restarting "$bs" to free its lock on "${ZFSROOT%%/*}" ...
-			systemctl restart "$bs"
-		done
-	}
-
 	# Destroy the ZFS pool if a bootable installation was not achieved.
 	self-destruct
 
 	[[ -d $MNT ]] && rmdir "$MNT"
-
-	if (( ${#bad_services[@]} > 0 )) && grep -Fq 'rd.live.image' /proc/cmdline; then
-		fmt -g 75 <<- END
-			live environment detected. restarting display-manager.service
-			to attempt recovery from services restarts ...
-		END
-		systemctl restart display-manager.service
-	fi
 }
 trap 'cleanup' exit
 
@@ -560,6 +535,7 @@ zfs create -o canmount=noauto -o mountpoint=/ "$ZFSROOT"
 	done
 )
 zfs mount "$ZFSROOT"
+mount --make-rslave "$MNT"
 CLEANUP+=("umount -lR '$MNT'")
 
 # double-check that the zfs operations were successful
@@ -582,6 +558,7 @@ for i in $LIST; do
 	CLEANUP+=("umount -R '$MNT/$i'")
 done
 mount -o X-mount.mkdir=755 --bind "/tmp" "$MNT/tmp"
+mount --make-slave "$MNT/tmp"
 CLEANUP+=("umount '$MNT/tmp'")
 
 "${DNF[@]}" \
@@ -753,6 +730,7 @@ for disk in $DEVDIR/vd[a-z]; do
 		printf "error: failed to bind mount /${name} to /boot\n"
 		continue
 	fi
+	mount --make-slave "$MNT/${name}"
 	printf "running kernel-install for /${name} ...\n"
 	"${CHROOT[@]}" kernel-install add \
 		$KVER /lib/modules/$KVER/vmlinuz &> /dev/null && :
