@@ -92,7 +92,6 @@ mktemp -d | read MNT
 function self-destruct { :; }
 function cleanup {
 	set +e
-	lsof +D "$MNT"
 	while [[ ${#CLEANUP[@]} -gt 0 ]]; do
 		eval ${CLEANUP[-1]} &> /dev/null
 		unset CLEANUP[-1]
