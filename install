@@ -89,7 +89,7 @@ fi
 
 declare -a CLEANUP=()
 mktemp -d | read MNT
-function self-destruct { :; }
+function pool-cleanup { :; }
 function cleanup {
 	set +e
 	while [[ ${#CLEANUP[@]} -gt 0 ]]; do
@@ -98,7 +98,7 @@ function cleanup {
 	done
 
 	# Destroy the ZFS pool if a bootable installation was not achieved.
-	self-destruct
+	pool-cleanup
 
 	[[ -d $MNT ]] && rmdir "$MNT"
 }
@@ -513,9 +513,9 @@ zpool create -f -m none -R "$MNT" \
 	$(grep -i '^-o ' config/properties.conf) \
 	"${ZFSROOT%%/*}" $ZFSRAID /dev/disk/by-partlabel/root@[a-z]
 
-# the self-destruct function will be undefined when
+# the pool-cleanup function will be redefined when
 # a (potentially) bootable state has been reached
-function self-destruct { 
+function pool-cleanup {
 	zpool destroy -f "${ZFSROOT%%/*}"
 }
 
@@ -970,8 +970,10 @@ done
 printf '\n'
 
 # the OS install is now in a (potentially) usable state,
-# make the "self-destruct" call a no-op
-function self-destruct { :; }
+# make the "pool-cleanup" call export the pool
+function pool-cleanup {
+	zpool export "${ZFSROOT%%/*}"
+}
 
 # ask to create additional accounts
 trap '' int
