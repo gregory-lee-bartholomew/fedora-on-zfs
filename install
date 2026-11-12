@@ -92,6 +92,7 @@ mktemp -d | read MNT
 function self-destruct { :; }
 function cleanup {
 	set +e
+	lsof +D "$MNT"
 	while [[ ${#CLEANUP[@]} -gt 0 ]]; do
 		eval ${CLEANUP[-1]} &> /dev/null
 		unset CLEANUP[-1]
@@ -474,12 +475,16 @@ for d in $DEVDIR/vd[a-z]; do
 	l=${d: -1}
 	d="$(realpath "$d")"
 	printf "[1m$d[22m:\n"
-	tee /dev/stdout <<- END | bash
-		sgdisk --zap-all "$d"
-		sgdisk -n "0:0:+$ESPSIZE" -t '0:ef00' -c "0:boot@$l" "$d"
-		sgdisk -n '0:0:0' -t '0:8304' -c "0:root@$l" "$d"
-		blockdev --rereadpt "$d"
-	END
+	COMMANDS=(
+		"sgdisk --zap-all '$d'"
+		"sgdisk -n '0:0:+$ESPSIZE' -t '0:ef00' -c '0:boot@$l' '$d'"
+		"sgdisk -n '0:0:0' -t '0:8304' -c '0:root@$l' '$d'"
+		"blockdev --rereadpt '$d'"
+	)
+	for c in "${COMMANDS[@]}"; do
+		printf -- '%s\n' "$c"
+		eval "$c"
+	done
 	printf '\n'
 done
 
