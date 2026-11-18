@@ -972,7 +972,7 @@ printf '\n'
 # the OS install is now in a (potentially) usable state,
 # make the "pool-cleanup" call export the pool
 function pool-cleanup {
-	zpool export "${ZFSROOT%%/*}"
+	zpool export "${ZFSROOT%%/*}" &> /dev/null
 }
 
 # ask to create additional accounts
